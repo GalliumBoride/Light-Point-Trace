@@ -20,6 +20,7 @@ export const LP = {
   partial: false,                               // 允许部分内反射 (ModePartial)
   upperApexDeg: 0,
   lowerApexDeg: 0,
+  zenHalf: false,                               // Lowitz 的 ζ 只转半圈 (0–180°); 默认整圈 = 原窗体
 };
 
 export function setSun(deg) {
@@ -340,7 +341,9 @@ export function axesMeta(m) {
   // ζ 轴取 0-360 周期 (双覆盖): sinζ<0 即 c 轴翻到对侧方位, 链对角度天然周期
   switch (m) {
     case OMode.Rot1: return { xl: 'φ 面内方位°', x0: 0, x1: 360, perX: true, yl: 'α 光点方位°', y0: 0, y1: 360, perY: true };
-    case OMode.ZenFree: return { xl: 'α 方位°', x0: 0, x1: 360, perX: true, yl: 'ζ 天顶角°', y0: 0, y1: 360, perY: true };
+    case OMode.ZenFree: return LP.zenHalf
+      ? { xl: 'α 方位°', x0: 0, x1: 360, perX: true, yl: 'ζ 天顶角°', y0: 0, y1: 180, perY: false }
+      : { xl: 'α 方位°', x0: 0, x1: 360, perX: true, yl: 'ζ 天顶角°', y0: 0, y1: 360, perY: true };
     case OMode.ZetaFixed: return { xl: 'α 方位°', x0: 0, x1: 360, perX: true, yl: 'roll°', y0: 0, y1: 360, perY: true };
     default: return { xl: 'roll°', x0: 0, x1: 360, perX: true, yl: 'ζ 天顶角°', y0: 0, y1: 360, perY: true };
   }

@@ -1,18 +1,20 @@
 // 计算流水线 — 与原窗体 Recompute → EnsureEndpoints → GetFamLines 的顺序一致.
 // Web Worker 与 Node 对账脚本共用这一份.
 
-import { LP, setSun, PathCtx, faceOk, trace2D, traceParry, mc2D, orientCompute, axesMeta } from './lp.js';
+import { LP, setSun, PathCtx, faceOk, trace2D, traceParry, mc2D, orientCompute, axesMeta, allFams } from './lp.js';
+import { zenHalfOn, zenEdgeSky, zenHalfEndpoints } from './zenhalf.js';
 import { AP } from './aperture.js';
 import { computeEndpoints } from './ep.js';
 import { getFamLines, apertureEndpoints } from './formlogic.js';
 
 /**
  * 全局配置 (同窗体 Recompute 开头): 太阳高度°, 部分反射, 锥晶顶角°, 真实晶体孔径层.
- * cfg = { sun, partial, apexUp, apexLo, aperture: { on, dist[6], h } }
+ * cfg = { sun, partial, apexUp, apexLo, aperture: { on, dist[6], h }, zenHalf }
  */
 export function setConfig(cfg) {
   setSun(cfg.sun);
   LP.partial = !!cfg.partial;
+  LP.zenHalf = !!cfg.zenHalf;
   if (Number.isFinite(cfg.apexUp)) LP.upperApexDeg = cfg.apexUp;
   if (Number.isFinite(cfg.apexLo)) LP.lowerApexDeg = cfg.apexLo;
   const ap = cfg.aperture || {};
@@ -26,7 +28,9 @@ export const isTwoDof = modeIdx => modeIdx === 0 || modeIdx === 3;
 /** 天球部分: 边界点 (Trace2D / Parry) + MC 填充. modeIdx: 0 柱晶 1 板晶 2 Parry 3 Lowitz */
 export function computeSky(P, modeIdx, om, fx, rollDeg) {
   if (modeIdx === 2) return { sky: traceParry(P, (rollDeg % 360) * Math.PI / 180), mc: new Float64Array(0) };
-  return { sky: trace2D(P, om, fx), mc: mc2D(P, om, fx, 400000) };
+  const sky = trace2D(P, om, fx);
+  if (zenHalfOn(om)) sky.set('ζ边界', zenEdgeSky(P, om, fx));      // ζ 半圈: 截断边也是区域的边
+  return { sky, mc: mc2D(P, om, fx, 400000) };
 }
 
 /** 取向平面部分 (仅 2DOF): 601×601 网格 + 族根点 + MC. 与天球部分互相独立, 可在另一个 Worker 并行. */
@@ -53,6 +57,7 @@ export function computeEps(pr, om, fx) {
   let eps;
   try { eps = computeEndpoints(pr.faces, om, fx); } catch (e) { eps = []; }
   try { eps.push(...apertureEndpoints(pr.P, pr.ori, om, fx)); } catch (e) { /* 同 C#: 忽略 */ }
+  if (zenHalfOn(om)) eps = zenHalfEndpoints(eps, pr.P, om, fx, allFams(pr.P, om));
   return eps;
 }
 
@@ -64,5 +69,15 @@ export function computeLines(pr, om, fx, skip = null) {
   const ax = axesMeta(om);
   for (const fm of pr.ori.fams)
     if (!skip || !skip.has(fm.name)) out.set(fm.name, getFamLines(pr.P, pr.ori, pr.eps, fm, ax.perX, ax.perY, om, fx, reg));
+  // ζ 只转半圈: 断头延拓会把线伸出截断边一点点 (≤ 0.3°), 伸出去的部分不属于这群晶体, 标成不成立
+  if (zenHalfOn(om))
+    for (const fl of out.values())
+      for (const [pars, skys] of [[fl.par, fl.sky], [fl.conn ? fl.conn.par : [], fl.conn ? fl.conn.sky : []]])
+        pars.forEach((par, li) => {
+          for (let i = 0; i < par.length / 2; i++) {
+            const v = par[2 * i + 1];
+            if (v < 0 || v > Math.PI) skys[li][4 * i + 3] = 0;
+          }
+        });
   return out;
 }

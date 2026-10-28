@@ -22,9 +22,9 @@ The whole tool is one HTML file. You can also download [`dist/LightPointTrace.ht
 - **Mirror fill-in.** Mirroring the sky left to right brings in the orientations and light path that produce the mirror half. These are drawn in the orientation plane too, for example 3-1-5 ↔ 3-2-5.
 
 You can choose:
-- **Orientation**: column crystals (fixed c-axis tilt), plates, Parry, Lowitz.
+- **Orientation**: column crystals (fixed c-axis tilt), plates, Parry, Lowitz. For Lowitz, ζ can make a full turn (0–360°) or only a half turn (0–180°); a half turn cuts the region off where the crystal lies flat, and that cut gets its own boundary curve and endpoints.
 - **Sun elevation.**
-- **Partial reflection.**
+- **Blue edge** (allow partial reflection).
 - **Pyramid faces**: by apex angle or Miller index.
 - **Real crystal size**: finite prism, aperture fences.
 - **Sky projection**: six choices.

@@ -10,7 +10,7 @@
 //   否则 / 'mean' — 本块的圆周平均, 跨度接近整圈时改用正弦.
 // 天空方向 → 鱼眼: 右 = 面向太阳时的右手边 (与「天空」视图同向), 上 = 太阳的"上".
 
-import { LP, K, SqK, chain3, newC3, jana3 } from './lp.js';
+import { LP, K, SqK, chain3, newC3, jana3, axesMeta } from './lp.js';
 import { AP, apMargin } from './aperture.js';
 
 const TAU = 2 * Math.PI;
@@ -58,8 +58,12 @@ export function fisheyeOf(Dx, Dy, Dz, out) {
  *        hist: { x0, x1, y0, y1, nx, ny, data, samples }, collapsed, bbox }
  */
 export function computeLift(P, m, fx, fams, lines, eps, opts = {}) {
-  const nu = opts.n || 360, nv = nu, du = TAU / nu, dv = TAU / nv;
-  const U = i => (i + OFF) * du, V = j => (j + OFF) * dv;
+  // 第二个角 v 默认首尾相接 (0–360°); Lowitz 的 ζ 只转半圈时是 0–180°, 不相接 (两头是截断边)
+  const ax = axesMeta(m), perV = ax.perY, vMax = (ax.y1 - ax.y0) * Math.PI / 180;
+  const nu = opts.n || 360, nv = perV ? nu : Math.round(nu / 2) + 1, du = TAU / nu;
+  const dv = perV ? TAU / nv : (vMax - 2e-4) / (nv - 1);
+  const U = i => (i + OFF) * du, V = j => (perV ? (j + OFF) * dv : 1e-4 + j * dv);
+  const jEnd = perV ? nv : nv - 1;                // 有下一行的格点 (不相接时最后一行没有)
   const c = newC3(P);
   const at = (i, j) => ((i % nu) + nu) % nu * nv + ((j % nv) + nv) % nv;
 
@@ -90,7 +94,7 @@ export function computeLift(P, m, fx, fams, lines, eps, opts = {}) {
   for (let i = 0; i < nu; i++)
     for (let j = 0; j < nv; j++) {
       const q = i * nv + j, a = ok[q];
-      const qu = at(i + 1, j), qv = at(i, j + 1);
+      const qu = at(i + 1, j), qv = j < jEnd ? at(i, j + 1) : q;
       if (a !== ok[qu]) {
         const t = bis(U(i), V(j), du, 0, a === 1);
         eU[q] = vu.length; vu.push(wrap2Pi(U(i) + t * du)); vv.push(V(j)); vCorner.push(a ? q : qu);
@@ -104,7 +108,7 @@ export function computeLift(P, m, fx, fams, lines, eps, opts = {}) {
   // ---------- marching squares → 三角形 ----------
   const tris = [];
   for (let i = 0; i < nu; i++)
-    for (let j = 0; j < nv; j++) {
+    for (let j = 0; j < jEnd; j++) {
       const k0 = at(i, j), k1 = at(i + 1, j), k2 = at(i + 1, j + 1), k3 = at(i, j + 1);
       const on = [ok[k0], ok[k1], ok[k2], ok[k3]];
       const cs = on[0] | (on[1] << 1) | (on[2] << 2) | (on[3] << 3);
@@ -163,6 +167,7 @@ export function computeLift(P, m, fx, fams, lines, eps, opts = {}) {
       if (!ok[q]) continue;
       const o = compInfo(compOf[gridId[q]]);
       o.seen.add(i);
+      if (j >= jEnd) continue;
       const q2 = at(i, j + 1);
       if (collapsed || !ok[q2] || compOf[gridId[q2]] !== compOf[gridId[q]]) continue;
       const J0 = Jg[q], J1 = Jg[q2];
@@ -190,11 +195,12 @@ export function computeLift(P, m, fx, fams, lines, eps, opts = {}) {
   }
   // 某个取向点属于哪个连通块 (线、末端点用)
   const compAt = (u, v) => {
-    const x = u / du - OFF, y = v / dv - OFF, i0 = Math.floor(x), j0 = Math.floor(y);
+    const x = u / du - OFF, y = perV ? v / dv - OFF : (v - 1e-4) / dv, i0 = Math.floor(x), j0 = Math.floor(y);
     let best = -1, bd = Infinity;
     for (let r = 1; r <= 3 && best < 0; r++)
       for (let di = 1 - r; di <= r; di++)
         for (let dj = 1 - r; dj <= r; dj++) {
+          if (!perV && (j0 + dj < 0 || j0 + dj >= nv)) continue;
           const q = at(i0 + di, j0 + dj);
           if (!ok[q]) continue;
           const d = (i0 + di - x) ** 2 + (j0 + dj - y) ** 2;
@@ -379,7 +385,7 @@ export function computeLift(P, m, fx, fams, lines, eps, opts = {}) {
   });
 
   // ---------- 地面亮度: 均匀随机姿态的落点直方图 ----------
-  const hist = groundHist(P, m, fx, x0, x1, y0, y1, (rnd, uv) => { uv[0] = rnd() * TAU; uv[1] = rnd() * TAU; }, opts.mcMs || 700);
+  const hist = groundHist(P, m, fx, x0, x1, y0, y1, (rnd, uv) => { uv[0] = rnd() * TAU; uv[1] = rnd() * (perV ? TAU : vMax); }, opts.mcMs || 700);
 
   return {
     n: vu.length,

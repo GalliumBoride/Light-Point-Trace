@@ -28,7 +28,7 @@ const DEFAULTS = {
   xw: 360, yw: 360, xc: 180, yc: 180,
   arcs: true, mc: true, lines: true, endpoints: true, sym: false,
   lineW: 2, mcSize: 1, checked: [], introDone: false, tab: 'setup', moreOpen: false,
-  kz: 1.6, liftRef: 'auto', drops: true, lang: '',
+  kz: 1.6, liftRef: 'auto', drops: true, lang: '', zenHalf: false,
 };
 
 const S = (() => {
@@ -67,7 +67,8 @@ S.lang = setLang(detectLang(S.lang));          // 记住的语言, 否则按浏�
 const glossary = initGlossary();
 const crystal = new CrystalPreview($('cvCrystal'), f => appendFace(f));
 let R = null, Rnext = null;
-let lastOm = modeParams(S.mode, S.fixed).om;
+LP.zenHalf = S.mode === 3 && S.zenHalf;
+let lastAxes = modeParams(S.mode, S.fixed).om + '|' + LP.zenHalf;   // 取向平面的轴 (模式 + ζ 范围) 变了就回到全图
 let dragging = false;
 
 const theme = () => PLOT_THEMES.paper;           // 白底 + matplotlib 配色
@@ -163,7 +164,6 @@ function syncMore(paths) {
   $('apexGrid').classList.toggle('miller', S.apexMode === 1);
   const tags = $('moreTags');
   tags.textContent = '';
-  if (S.partial) tags.append(el('span', '', tr('tag.partial')));
   if (pyr) tags.append(el('span', '', tr('tag.apex', { deg: S.apexUpEff.toFixed(1) })));
   if (S.real) tags.append(el('span', '', tr('tag.real')));
   if (S.real && paths && paths.length && !paths.some(apSupports))
@@ -189,8 +189,10 @@ function compute() {
   syncMore(paths);
   const { om, fx } = modeParams(S.mode, S.fixed);
   setSun(sun);
-  const cfg = { sun, partial: S.partial, apexUp: S.apexUpEff, apexLo: S.apexLoEff, aperture: { on: S.real, dist: d, h } };
-  if (om !== lastOm) { lastOm = om; resetOriView(); }
+  const zenHalf = S.mode === 3 && S.zenHalf;
+  LP.zenHalf = zenHalf;                          // 主线程里也要知道取向平面的 ζ 范围 (画轴、回到全图)
+  const cfg = { sun, partial: S.partial, apexUp: S.apexUpEff, apexLo: S.apexLoEff, aperture: { on: S.real, dist: d, h }, zenHalf };
+  if (om + '|' + zenHalf !== lastAxes) { lastAxes = om + '|' + zenHalf; resetOriView(); }
   const twoDof = S.mode === 0 || S.mode === 3;
   const tasks = [], prs = [];
   paths.forEach((faces, i) => {
@@ -203,7 +205,7 @@ function compute() {
   const job = pool.compute(tasks);
   Rnext = {
     job, t0: performance.now(),
-    params: { sun, partial: S.partial, mode: S.mode, fixed: S.fixed, om, fx, twoDof, real: S.real, h, realTag: realTag(S.real, d, h) },
+    params: { sun, partial: S.partial, mode: S.mode, fixed: S.fixed, om, fx, twoDof, real: S.real, h, realTag: realTag(S.real, d, h), zenHalf },
     paths: prs, oriLocal: null, clouds: new Map(), requestCloud,
   };
   S.probe = null; S.hoverEp = null; $('probeCard').hidden = true;
@@ -273,7 +275,7 @@ function renderCrumbs(paths) {
   c.textContent = '';
   const mi = modeInfo(S.mode);
   c.append(el('b', '', paths.map(p => p.join('-')).join(', ')), el('span', 'sep', '/'),
-           el('span', '', mi.name + (S.mode === 1 ? '' : ` ${mi.sym} ${fmt(S.fixed)}°`)),
+           el('span', '', mi.name + (S.mode === 1 ? '' : ` ${mi.sym} ${fmt(S.fixed)}°`) + (S.mode === 3 && S.zenHalf ? ' · ζ 0–180°' : '')),
            el('span', 'sep', '/'), el('span', '', tr('crumb.sun', { v: fmt(S.sun) })));
 }
 const axName = s => s.split(' ')[0].replace('°', '');
@@ -463,6 +465,7 @@ function renderCurves() {
         box.append(row);
       });
       if (S.sym && S.view === 1 && P.twoDof) box.append(el('div', 'mirror-note', mirrorNote(pr)));
+      if (P.zenHalf && k === T.paths.length - 1) box.append(el('div', 'info-note', tr('curves.zenHalf')));
     } else if (pr.sky) {
       pr.sky.forEach((s, fi) => {
         n++;
@@ -671,7 +674,12 @@ function setLanguage(code) {
 // ============================================================ 镜头
 function clampFov() { S.fov = Math.max(1, Math.min(fovMax(S.lens), S.fov)); }
 function clampOri() { S.xw = Math.max(2, Math.min(360, S.xw)); S.yw = Math.max(2, Math.min(360, S.yw)); }
-function resetOriView() { S.xw = 360; S.yw = 360; S.xc = 180; S.yc = 180; if (R) R.oriLocal = null; syncCam(); }
+function resetOriView() {
+  const ax = axesMeta(modeParams(S.mode, S.fixed).om);
+  S.xw = ax.x1 - ax.x0; S.yw = ax.y1 - ax.y0; S.xc = (ax.x0 + ax.x1) / 2; S.yc = (ax.y0 + ax.y1) / 2;
+  if (R) R.oriLocal = null;
+  syncCam();
+}
 function lookAt(az, elv, fov) {
   S.az = ((az % 360) + 360) % 360; S.el = elv;
   if (fov) { S.fov = fov; clampFov(); }
@@ -717,6 +725,13 @@ function syncMode() {
   $('slFixed').value = S.fixed;
   if (document.activeElement !== $('inFixed')) $('inFixed').value = S.fixed;
   $('fixedNote').textContent = mi.note;
+  const lw = S.mode === 3;
+  $('zenRow').hidden = !lw; $('zenNote').hidden = !lw;
+  document.querySelectorAll('#zenSeg button').forEach(b => {
+    const on = (b.dataset.zen === '1') === S.zenHalf;
+    b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));
+  });
+  $('zenNote').textContent = tr(S.zenHalf ? 'zen.noteHalf' : 'zen.noteFull');
 }
 
 // ============================================================ 读数 (鼠标处)
@@ -844,7 +859,7 @@ function buildPresets() {
 
 function applyPreset(p) {
   closePops();
-  S.mode = p.mode; S.fixed = p.fixed; S.sun = p.sun; S.sym = !!p.sym;
+  S.mode = p.mode; S.fixed = p.fixed; S.sun = p.sun; S.sym = !!p.sym; S.zenHalf = false;
   $('inSun').value = p.sun; $('slSun').value = p.sun; $('ckSym').checked = S.sym;
   syncMode();
   if (p.cam) { S.az = p.cam[0]; S.el = p.cam[1]; S.fov = p.cam[2]; clampFov(); syncCam(); }
@@ -914,6 +929,11 @@ function initControls() {
   buildPresets();
 
   // ---- ② 取向 ----
+  document.querySelectorAll('#zenSeg button').forEach(b => b.addEventListener('click', () => {
+    const half = b.dataset.zen === '1';
+    if (half === S.zenHalf) return;
+    S.zenHalf = half; syncMode(); compute();
+  }));
   document.querySelectorAll('#modes button').forEach(b => b.addEventListener('click', () => {
     if (S.mode === +b.dataset.mode) return;
     S.mode = +b.dataset.mode; syncMode(); compute();

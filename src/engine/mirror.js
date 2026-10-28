@@ -7,7 +7,7 @@
 // 在所有可用的 g 里挑 P' 最接近 P 的: P' = P 时取向平面本身已经左右对称; 其次改动的面最少、优先底面镜像
 // (柱晶 ζ = 90° 时 3-1-5 ↔ 3-2-5, 与习惯一致).
 
-import { OMode, faceCoef, faceOk, orientOf } from './lp.js';
+import { LP, OMode, faceCoef, faceOk, orientOf } from './lp.js';
 
 const FACES = [1, 2, 3, 4, 5, 6, 7, 8, 13, 14, 15, 16, 17, 18, 23, 24, 25, 26, 27, 28].filter(faceOk);
 
@@ -40,7 +40,7 @@ function mapFace(g, f) {
 /** R' = M·R·g 还在不在这张取向平面里 (取几个随机姿态检验). */
 function keepsSlice(g, m, fx) {
   const e = new Float64Array(9);
-  for (const [u, v] of [[0.7, 1.9], [2.3, 4.1], [5.2, 0.4], [3.9, 2.8]]) {
+  for (const [u, v] of [[0.7, 1.9], [2.3, 1.1], [5.2, 0.4], [3.9, 2.8]]) {   // v < 180°: 也落在半圈的 ζ 范围里
     orientOf(m, fx, u, v, e);
     // R 的列 = e1 (e[0..2]), e2 (e[3..5]), e3 (e[6..8]); R' 的第 k 列 = M · Σ_j g[j][k] e_j
     const col = k => {
@@ -56,8 +56,10 @@ function keepsSlice(g, m, fx) {
       if (sz < 1e-6) continue;
       const ca = e3[0] / sz, sa = e3[1] / sz, cz = Math.cos(ze);
       const rho = Math.atan2(e1[0] * -cz * ca + e1[1] * -cz * sa + e1[2] * sz, -e1[0] * sa + e1[1] * ca);
-      const d = ((rho - fx) % Math.PI + Math.PI) % Math.PI;          // ζ 走满整圈: roll 与 roll+180° 同在这张图里
-      if (Math.min(d, Math.PI - d) > 1e-7) return false;
+      // ζ 走满整圈时 roll 与 roll+180° 同在这张图里; 只转半圈时 roll 必须相同
+      const per = LP.zenHalf ? 2 * Math.PI : Math.PI;
+      const d = ((rho - fx) % per + per) % per;
+      if (Math.min(d, per - d) > 1e-7) return false;
     } else return false;
   }
   return true;

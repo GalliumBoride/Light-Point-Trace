@@ -4,13 +4,13 @@
 // 判据: 随机取光路成立的姿态, |J| 的中位数 < 1e-9. 实测正常光路 ≥ 1e-2, 退化光路 ~1e-16, 中间没有灰区.
 // 只在界面这一层用 (Worker), 引擎本身仍与 C# 逐点一致.
 
-import { validAt, jana3 } from './lp.js';
+import { validAt, jana3, axesMeta } from './lp.js';
 import { DotNetRandom } from './random.js';
 
 export function isCollapsed(P, m, fx) {
-  const rng = new DotNetRandom(11), J = [];
+  const rng = new DotNetRandom(11), J = [], ax = axesMeta(m), vMax = (ax.y1 - ax.y0) * Math.PI / 180;
   for (let i = 0; i < 40000 && J.length < 600; i++) {
-    const u = rng.nextDouble() * 2 * Math.PI, v = rng.nextDouble() * 2 * Math.PI;
+    const u = rng.nextDouble() * 2 * Math.PI, v = rng.nextDouble() * vMax;
     if (!validAt(P, m, fx, u, v, 1e-8)) continue;
     const j = jana3(u, v, m, fx, P);
     if (Number.isFinite(j)) J.push(Math.abs(j));

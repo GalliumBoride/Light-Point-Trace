@@ -40,6 +40,7 @@ function sub(n) { return String(n).split('').map(c => SUBS[+c]).join(''); }
 /** 天空图族名 (Trace2D 的键) → 友好名 */
 export function skyName(key, faces, partial) {
   if (key === 'Parry轨迹(1DOF)' || key === '固定ζ极点退化1DOF') return t('sky.dof1');
+  if (key === 'ζ边界') return t('sky.zenEdge');
   const m = key.match(/^(\S+)-帽 (.*)$/);
   const base = m ? m[2] : key;
   const fm = famFromName(base);
@@ -68,6 +69,7 @@ export function epLabel(label, partial) {
     if (s === 'exit') return t('ep.exit');
     if (s === '焦散') return t('ep.caustic');
     if (s === 'Ω边界') return t('ep.omega');
+    if (s === 'ζ边界') return t('ep.zenEdge');
     if (s.startsWith('可达带上界')) return t('ep.reachUp');
     if (s.startsWith('可达带下界')) return t('ep.reachLo');
     let m = s.match(/^q\d+\(面(\d+)\)=0/);
@@ -77,6 +79,7 @@ export function epLabel(label, partial) {
     if (/入射掠射/.test(s)) return t('ep.entry');
     if (/出射临界/.test(s)) return t('ep.exit');
     if (/焦散/.test(s)) return t('ep.caustic');
+    if (/孔径/.test(s)) return t('ep.aperture');
     return s;
   };
   return label.split(' | ').map(part => {
