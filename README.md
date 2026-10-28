@@ -4,7 +4,7 @@
 
 Type a light path through a hexagonal ice crystal, for example `3-1-5`. The tracer shows where that path puts a halo arc in the sky. It also computes the arc's exact boundaries, its brightest edge and the points where it ends. Everything is solved in closed form or by root-finding; nothing is estimated from ray-tracing samples.
 
-**Try it online: <https://galliumboride.github.io/LightPointTrace/>**
+**Try it online: <https://galliumboride.github.io/Light-Point-Trace/>**
 
 The whole tool is one HTML file. You can also download [`dist/LightPointTrace.html`](dist/LightPointTrace.html) and double-click it. It runs offline in any modern browser on Windows, macOS, Linux or a tablet.
 

@@ -3,8 +3,8 @@
   "version": "1.1.0",
   "description": "Light-Point Halo Tracer — exact ice-halo arcs, fences, caustics and endpoints in a single offline HTML file",
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/GalliumBoride/LightPointTrace.git" },
-  "homepage": "https://galliumboride.github.io/LightPointTrace/",
+  "repository": { "type": "git", "url": "https://github.com/GalliumBoride/Light-Point-Trace.git" },
+  "homepage": "https://galliumboride.github.io/Light-Point-Trace/",
   "private": true,
   "type": "module",
   "scripts": {

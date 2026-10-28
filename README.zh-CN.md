@@ -4,7 +4,7 @@
 
 输入一条光在六棱冰晶里走的路线 (面号串, 如 `3-1-5`), 看它在天上画出什么弧, 以及弧的精确边界 (篱笆)、最亮的边 (焦散) 和弧在哪里结束 (末端点). 边界和末端点都是闭式或求根得到的, 不是从光线追踪的采样里估出来的.
 
-**在线使用: <https://galliumboride.github.io/LightPointTrace/>**
+**在线使用: <https://galliumboride.github.io/Light-Point-Trace/>**
 
 整个工具就是一个 HTML 文件: 也可以下载 [`dist/LightPointTrace.html`](dist/LightPointTrace.html) 双击打开, 离线可用, Windows / macOS / Linux / 平板的现代浏览器都行.
 
