@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>光点法边界追踪 · Light-Point Halo Tracer</title>
+<meta name="description" id="metaDesc" content="冰晕光路的天空弧、边界 (篱笆)、焦散与末端点 — 光点法闭式引擎, 单文件离线运行.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='12.5' fill='none' stroke='%23d9961c' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='4.5' fill='%23d9961c'/%3E%3C/svg%3E">
+<style>/*__CSS__*/</style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ================= 顶栏 ================= -->
+  <header class="bar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">
+        <circle cx="16" cy="16" r="13" class="lg-ring"/>
+        <path d="M16 6.5l8.2 4.75v9.5L16 25.5l-8.2-4.75v-9.5z" class="lg-hex"/>
+        <circle cx="16" cy="16" r="2.6" class="lg-sun"/>
+      </svg>
+      <div class="brand-text">
+        <strong data-i18n="app.title">光点法边界追踪</strong>
+        <span data-i18n="app.tagline">冰晕弧 · 篱笆 · 焦散 · 末端点</span>
+      </div>
+    </div>
+    <div class="crumbs" id="crumbs" aria-live="polite"></div>
+    <div class="grow"></div>
+    <div class="status" id="status"><i></i><span id="statusText" data-i18n="status.ready">就绪</span></div>
+    <label class="lang">
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><circle cx="10" cy="10" r="7.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.8 10h14.4M10 2.8c2.2 2.1 3.2 4.4 3.2 7.2s-1 5.1-3.2 7.2c-2.2-2.1-3.2-4.4-3.2-7.2s1-5.1 3.2-7.2z" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+      <select id="selLang" data-i18n-aria="lang.aria" aria-label="界面语言"></select>
+    </label>
+    <button class="btn ghost" id="btnGlossary" data-i18n-title="bar.glossaryTitle" title="所有术语的解释">
+      <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M4 3.5h8.5a3 3 0 013 3V16.5H7a3 3 0 01-3-3z M4 13.5a3 3 0 013-3h8.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      <span data-i18n="bar.glossary">术语</span>
+    </button>
+    <button class="btn" id="btnExport" data-i18n-title="bar.exportTitle" title="把当前视图连同标题和图例存成 PNG">
+      <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M10 3v9m0 0l-3.5-3.5M10 12l3.5-3.5M4 14v2.5h12V14" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="hide-sm" data-i18n="bar.export">导出图片</span>
+    </button>
+  </header>
+
+  <!-- 窄屏: 设置 / 解读 切换 -->
+  <nav class="tabs" id="tabs" role="tablist">
+    <button role="tab" data-tab="setup" class="on"><span data-i18n="tab.setup">设置</span></button>
+    <button role="tab" data-tab="read"><span data-i18n="tab.read">解读</span><span class="tab-badge" id="tabBadge" aria-hidden="true"></span></button>
+  </nav>
+
+  <!-- ================= 左: 按步骤设定 ================= -->
+  <aside class="setup panel" id="setup">
+
+    <section class="step">
+      <header class="step-head">
+        <span class="step-num">1</span>
+        <h2 data-i18n="step1.title">光路</h2>
+        <button class="qmark" data-term="path" data-i18n-aria="step1.q" aria-label="什么是光路">?</button>
+        <button class="btn small presets-btn" id="btnPresets" aria-haspopup="true" aria-expanded="false"><span data-i18n="step1.presets">常见晕弧</span>
+          <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2.5 4.5L6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        </button>
+      </header>
+      <div class="path-field">
+        <input id="inPath" type="text" spellcheck="false" autocomplete="off" inputmode="text" data-i18n-aria="path.aria" aria-label="光路 (面号串)" data-i18n-ph="path.ph" placeholder="如 3-1-5">
+        <button class="enter-btn" id="btnCompute" data-i18n-title="path.compute" title="计算 (Enter)" data-i18n-aria="path.computeAria" aria-label="计算">
+          <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M15 5v4.5a2 2 0 01-2 2H5m0 0l3.2-3.2M5 11.5l3.2 3.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="chain" id="chain"></div>
+      <div class="msg" id="pathMsg"></div>
+      <div class="crystal-box">
+        <canvas id="cvCrystal" data-i18n-aria="crystal.aria" aria-label="六棱柱晶体: 点面加入光路, 拖动旋转"></canvas>
+        <div class="crystal-tools">
+          <div class="crystal-hint" data-i18n="crystal.hint">点晶面 → 加入光路<br><span>拖动旋转</span></div>
+          <div class="role-key" data-i18n="crystal.roles"><i class="r-in"></i>入射 <i class="r-mid"></i>反射 <i class="r-out"></i>出射</div>
+          <div class="crystal-btns">
+            <button class="btn small" id="btnBack" data-i18n="crystal.back" data-i18n-title="crystal.backTitle" title="删除最后一个面">退一格</button>
+            <button class="btn small" id="btnNewPath" data-i18n="crystal.newPath" data-i18n-title="crystal.newPathTitle" title="再加一条光路 (逗号分隔)">+ 一条</button>
+            <button class="btn small" id="btnClear" data-i18n="crystal.clear">清空</button>
+          </div>
+        </div>
+      </div>
+      <div class="faces-hint"><span data-i18n="faces.hint">底面 1 / 2 · 柱面 3–8 · 上锥 13–18 · 下锥 23–28</span> <button class="qmark" data-term="faces" data-i18n-aria="faces.q" aria-label="面号">?</button></div>
+    </section>
+
+    <section class="step">
+      <header class="step-head">
+        <span class="step-num">2</span>
+        <h2 data-i18n="step2.title">晶体取向</h2>
+        <button class="qmark" data-term="orientation" data-i18n-aria="step2.q" aria-label="什么是晶体取向">?</button>
+      </header>
+      <div class="modes" id="modes" role="radiogroup" data-i18n-aria="modes.aria" aria-label="取向模式">
+        <button role="radio" data-mode="0">
+          <svg viewBox="0 0 48 28" aria-hidden="true"><path class="ic" d="M6 9h28l6 5-6 5H6l-4-5z"/><path class="ic thin" d="M6 9l-4 5 4 5M34 9l-4 5 4 5"/></svg>
+          <b class="mode-name">柱晶</b><small>2DOF</small>
+        </button>
+        <button role="radio" data-mode="1">
+          <svg viewBox="0 0 48 28" aria-hidden="true"><path class="ic" d="M8 12l7-4h18l7 4-7 4H15z"/><path class="ic" d="M8 12v4l7 4h18l7-4v-4"/></svg>
+          <b class="mode-name">板晶</b><small>1DOF</small>
+        </button>
+        <button role="radio" data-mode="2">
+          <svg viewBox="0 0 48 28" aria-hidden="true"><path class="ic" d="M6 8h30v12H6z"/><path class="ic thin" d="M6 8l-3 6 3 6M36 8l4 6-4 6"/><path class="ic acc" d="M9 5.5h24"/></svg>
+          <b class="mode-name">Parry</b><small>1DOF</small>
+        </button>
+        <button role="radio" data-mode="3">
+          <svg viewBox="0 0 48 28" aria-hidden="true"><path class="ic" d="M14 6l6-2 12 9 0 7-6 2-12-9z"/><path class="ic thin" d="M14 6v7l12 9"/><path class="ic acc" d="M38 6a10 10 0 010 16"/></svg>
+          <b class="mode-name">Lowitz</b><small>2DOF</small>
+        </button>
+      </div>
+      <p class="mode-desc" id="modeDesc"></p>
+      <div class="slider-row" id="fixedRow">
+        <label for="slFixed" id="lbFixed">c 轴天顶角 ζ</label>
+        <input type="range" id="slFixed" min="0" max="180" step="1">
+        <span class="numbox"><input type="number" id="inFixed" step="1" data-i18n-aria="fixed.aria" aria-label="固定角"><i>°</i></span>
+      </div>
+      <p class="fixed-note" id="fixedNote"></p>
+    </section>
+
+    <section class="step">
+      <header class="step-head">
+        <span class="step-num">3</span>
+        <h2 data-i18n="step3.title">太阳高度</h2>
+      </header>
+      <div class="slider-row sun-row">
+        <svg class="sun-ic" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.6"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"/></svg>
+        <input type="range" id="slSun" min="0" max="89" step="0.5" data-i18n-aria="sun.aria" aria-label="太阳高度">
+        <span class="numbox"><input type="number" id="inSun" min="0" max="89.99" step="0.5" data-i18n-aria="sun.ariaDeg" aria-label="太阳高度 (度)"><i>°</i></span>
+      </div>
+    </section>
+
+    <details class="more" id="more">
+      <summary><span data-i18n="more.title">更多选项</span> <span class="more-tags" id="moreTags"></span></summary>
+      <div class="more-body">
+        <div class="opt">
+          <label class="switch"><input type="checkbox" id="ckPartial"><span class="sw"></span><b data-i18n="more.partial">允许部分反射</b></label>
+          <button class="qmark" data-term="partial" data-i18n-aria="more.partialQ" aria-label="部分反射">?</button>
+          <p data-i18n="more.partialNote">全反射临界从硬边变成亮度台阶 (蓝边).</p>
+        </div>
+        <div class="opt" id="optApex">
+          <div class="opt-head"><b data-i18n="more.apex">锥晶顶角</b><button class="qmark" data-term="apex" data-i18n-aria="more.apex" aria-label="锥晶顶角">?</button>
+            <select id="selApex" data-i18n-aria="more.apexHow" aria-label="顶角定义方式"><option value="0" data-i18n="more.apexByDeg">按角度</option><option value="1" data-i18n="more.apexByMiller">按 Miller 指数</option></select>
+          </div>
+          <p class="apex-off" id="apexOff" data-i18n="more.apexOff">当前光路不含锥面 (13–18 / 23–28), 这一项不起作用.</p>
+          <div class="apex-grid" id="apexGrid">
+            <span data-i18n="more.upper">上锥 13–18</span>
+            <span class="by-deg numbox"><input type="number" id="inUpDeg" step="0.1" data-i18n-aria="more.upperDeg" aria-label="上锥顶角"><i>°</i></span>
+            <span class="by-mil"><input type="number" id="inUpA" min="1" step="1" data-i18n-aria="more.upperMa" aria-label="上锥 Miller a"><input type="number" id="inUpB" min="1" step="1" data-i18n-aria="more.upperMb" aria-label="上锥 Miller b"></span>
+            <em id="lbUpInfo"></em>
+            <span data-i18n="more.lower">下锥 23–28</span>
+            <span class="by-deg numbox"><input type="number" id="inLoDeg" step="0.1" data-i18n-aria="more.lowerDeg" aria-label="下锥顶角"><i>°</i></span>
+            <span class="by-mil"><input type="number" id="inLoA" min="1" step="1" data-i18n-aria="more.lowerMa" aria-label="下锥 Miller a"><input type="number" id="inLoB" min="1" step="1" data-i18n-aria="more.lowerMb" aria-label="下锥 Miller b"></span>
+            <em id="lbLoInfo"></em>
+          </div>
+        </div>
+        <div class="opt" id="optReal">
+          <label class="switch"><input type="checkbox" id="ckReal"><span class="sw"></span><b data-i18n="more.real">真实晶体尺寸</b></label>
+          <button class="qmark" data-term="realcrystal" data-i18n-aria="more.realQ" aria-label="真实晶体">?</button>
+          <p data-i18n="more.realNote">按有限大小的六棱柱剪掉走不通的弧段. 晶体图会跟着变形.</p>
+          <div class="dgrid" id="dgrid">
+            <label>d3<input type="number" data-d="0" step="0.05"></label>
+            <label>d4<input type="number" data-d="1" step="0.05"></label>
+            <label>d5<input type="number" data-d="2" step="0.05"></label>
+            <label>d6<input type="number" data-d="3" step="0.05"></label>
+            <label>d7<input type="number" data-d="4" step="0.05"></label>
+            <label>d8<input type="number" data-d="5" step="0.05"></label>
+            <label>h<input type="number" id="inH" step="0.05"></label>
+            <button class="btn small" id="btnRealReset" data-i18n="more.realReset">全部恢复为 1</button>
+          </div>
+        </div>
+      </div>
+    </details>
+  </aside>
+
+  <!-- ================= 中: 图 ================= -->
+  <main class="stage" id="stage">
+    <div class="plot" id="plot">
+      <canvas id="cv"></canvas>
+      <canvas id="cv3" hidden></canvas>
+      <canvas id="cv3o" hidden></canvas>
+      <div class="progress" id="progress"></div>
+
+      <div class="ov ov-tl">
+        <div class="seg glass" id="viewSeg" role="tablist" data-i18n-aria="view.aria" aria-label="视图">
+          <button role="tab" data-view="0" data-i18n="view.sky">天空</button>
+          <button role="tab" data-view="1" data-i18n="view.ori">取向平面</button>
+          <button role="tab" data-view="2" data-i18n="view.3d">3D 抬升</button>
+        </div>
+        <button class="qmark glass" id="viewQ" data-term="sky" data-i18n-aria="view.q" aria-label="这个视图是什么">?</button>
+      </div>
+
+      <div class="ov ov-tr">
+        <button class="chip glass" id="chipEps" aria-pressed="true" data-i18n-title="chip.epsTitle" title="在图上标出末端点"><span class="g-end">●</span><span data-i18n="chip.eps">末端点</span></button>
+        <button class="chip glass" id="btnLayers" aria-haspopup="true" aria-expanded="false">
+          <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><path d="M10 3l7 3.8-7 3.8-7-3.8z M3 10.4l7 3.8 7-3.8 M3 13.8l7 3.8 7-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span data-i18n="chip.layers">图层</span></button>
+      </div>
+
+      <div class="pop glass layers" id="layersPop" hidden>
+        <label class="switch"><input type="checkbox" id="ckArcs"><span class="sw"></span><span data-l2="layers.arcs2" data-l3="layers.arcs3">边界弧与点云</span></label>
+        <label class="switch"><input type="checkbox" id="ckMc"><span class="sw"></span><span data-l2="layers.mc2" data-l3="layers.mc3">MC 点云填充</span> <button class="qmark" data-term="mc" aria-label="MC">?</button></label>
+        <label class="switch"><input type="checkbox" id="ckLines"><span class="sw"></span><span data-l2="layers.lines2" data-l3="layers.lines3">按顺序连线</span></label>
+        <label class="switch no3d"><input type="checkbox" id="ckSym"><span class="sw"></span><span data-i18n="layers.sym">左右镜像补全</span></label>
+        <label class="switch only3d"><input type="checkbox" id="ckDrops"><span class="sw"></span><span data-i18n="layers.drops">折痕到地面的竖直线</span></label>
+        <div class="pop-row"><span data-i18n="layers.lineW">线宽</span><input type="range" id="slLineW" min="1" max="6" step="0.5"><output id="outLineW"></output></div>
+        <div class="pop-row no3d"><span data-i18n="layers.mcSize">点大小</span><input type="range" id="slMcSize" min="1" max="4" step="1"><output id="outMcSize"></output></div>
+        <div class="pop-row narrow-only no3d"><span data-i18n="layers.lens">投影</span><select id="selLens2" data-i18n-aria="layers.lens" aria-label="投影"></select></div>
+        <div class="pop-row only3d"><span data-i18n="layers.kz">高度比例</span><input type="range" id="slKz" min="0.6" max="3" step="0.1"><output id="outKz"></output></div>
+        <div class="pop-row only3d"><span data-i18n="layers.ref">高度零点</span><select id="selLiftRef" data-i18n-aria="layers.ref" aria-label="高度零点"><option value="auto" data-i18n="layers.refAuto">折痕 (能对齐时)</option><option value="mean" data-i18n="layers.refMean">本块平均</option></select></div>
+      </div>
+
+      <div class="ov ov-bl" id="camSky">
+        <div class="camgroup glass" id="lensGroup">
+          <select id="selLens" data-i18n-aria="cam.lens" aria-label="投影"></select>
+          <button class="qmark" data-term="projection" data-i18n-aria="cam.lens" aria-label="投影">?</button>
+        </div>
+        <div class="camgroup glass">
+          <button class="cam" data-look="sun" data-i18n-title="cam.sunTitle" title="看向太阳"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.4"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2"/></svg><span data-i18n="cam.sun">太阳</span></button>
+          <button class="cam" data-look="anti" data-i18n="cam.anti" data-i18n-title="cam.antiTitle" title="看向反日方向">反日</button>
+          <button class="cam" data-look="zen" data-i18n="cam.zen" data-i18n-title="cam.zenTitle" title="看向天顶">天顶</button>
+        </div>
+        <div class="camgroup glass zoom">
+          <button class="cam icon" data-zoom="out" data-i18n-aria="cam.zoomOut" aria-label="缩小视场">−</button>
+          <button class="cam val" id="btnCamNum" data-i18n-title="cam.numTitle" title="输入精确视角">180°</button>
+          <button class="cam icon" data-zoom="in" data-i18n-aria="cam.zoomIn" aria-label="放大视场">+</button>
+        </div>
+      </div>
+      <div class="pop glass camnum" id="camPop" hidden>
+        <div class="pop-row"><span data-i18n="cam.az">视线方位</span><span class="numbox"><input type="number" id="inAz" step="1"><i>°</i></span></div>
+        <div class="pop-row"><span data-i18n="cam.el">视线仰角</span><span class="numbox"><input type="number" id="inEl" step="1" min="-90" max="90"><i>°</i></span></div>
+        <div class="pop-row"><span data-i18n="cam.fov">视场</span><span class="numbox"><input type="number" id="inFov" step="1" min="1" max="360"><i>°</i></span></div>
+        <p data-i18n="cam.azNote">方位从太阳方向量起, 向左为正.</p>
+      </div>
+
+      <div class="ov ov-bl" id="camOri" hidden>
+        <div class="camgroup glass">
+          <button class="cam" id="btnOriReset" data-i18n="ori.reset" data-i18n-title="ori.resetTitle" title="回到完整的 360° × 360°">全图</button>
+          <button class="cam" id="btnRefine" data-i18n="ori.refine" data-i18n-title="ori.refineTitle" title="对当前视窗重新细算 (第一条光路)">细化视窗</button>
+          <button class="qmark" data-term="refine" data-i18n-aria="ori.refine" aria-label="细化视窗">?</button>
+        </div>
+        <div class="camgroup glass zoom">
+          <button class="cam icon" data-zoom="out" data-i18n-aria="ori.zoomOut" aria-label="缩小">−</button>
+          <span class="cam val" id="oriZoomVal">360°</span>
+          <button class="cam icon" data-zoom="in" data-i18n-aria="ori.zoomIn" aria-label="放大">+</button>
+        </div>
+      </div>
+
+      <div class="ov ov-bl" id="cam3d" hidden>
+        <div class="camgroup glass">
+          <button class="cam" data-view3="proto" data-i18n="v3.proto" data-i18n-title="v3.protoTitle" title="从斜上方看">斜看</button>
+          <button class="cam" data-view3="side" data-i18n="v3.side" data-i18n-title="v3.sideTitle" title="贴地侧看: 只转自旋时, 曲面在折痕处竖直折回">侧面</button>
+          <button class="cam" data-view3="top" data-i18n="v3.top" data-i18n-title="v3.topTitle" title="从正上方看: 地面就是天空图">俯视</button>
+          <button class="qmark" data-term="lift3d" data-i18n-aria="v3.q" aria-label="3D 抬升是什么">?</button>
+        </div>
+        <div class="camgroup glass">
+          <button class="cam" id="btnLift" data-i18n="v3.lower" data-i18n-title="v3.liftTitle" title="把曲面压回地面 / 抬起来">放下</button>
+        </div>
+      </div>
+
+      <div class="ov ov-br readout glass" id="readout"></div>
+      <div class="empty-note" id="emptyNote" hidden></div>
+    </div>
+  </main>
+
+  <!-- ================= 右: 解读 ================= -->
+  <aside class="read panel" id="read">
+    <section class="card probe" id="probeCard" hidden>
+      <header><h3 data-i18n="probe.title">这个姿态下的光路</h3><button class="link" id="btnProbeClose" data-i18n="probe.clear">清除标记</button></header>
+      <div id="probeBody"></div>
+    </section>
+
+    <section class="card intro" id="intro">
+      <header><h3 data-i18n="intro.title">怎么读这张图</h3><button class="link" id="btnIntroClose" data-i18n="intro.close">知道了</button></header>
+      <ul>
+        <li><span class="k k-mc"></span><span data-i18n="intro.mc"><b>灰色点云</b>: 光路成立时光射向的所有方向, 也就是弧可能出现的范围.</span></li>
+        <li><span class="k k-line"></span><span data-i18n="intro.lines"><b>彩色线</b>: 区域的边界 (篱笆) 和最亮的边 (焦散). 颜色和下面的列表一一对应.</span></li>
+        <li><span class="k k-ep">●</span><span data-i18n="intro.eps"><b>末端点</b>: 弧在哪里结束 ●、在哪里折回 ▲、在哪里打尖 ✱.</span></li>
+        <li><span class="k k-ori"></span><span data-i18n="intro.ori">切到<b>取向平面</b>看同一件事在"晶体姿态"上的样子, 单击任一点看光路卡在哪一步.</span></li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <header><h3 data-i18n="curves.title">图上的线</h3><button class="qmark" data-term="fence" data-i18n-aria="curves.q" aria-label="篱笆">?</button><span class="aside" id="curveAside"></span></header>
+      <div class="curves" id="curves"></div>
+      <p class="foot" id="curveFoot" data-i18n="curves.foot">勾选一条线: 画出整条曲线 (淡色是延伸到光路不成立处的部分), 并用同色淡点铺出它的满足侧.</p>
+    </section>
+
+    <section class="card">
+      <header><h3 data-i18n="eps.title">末端点</h3><button class="qmark" data-term="endpoints" data-i18n-aria="eps.q" aria-label="末端点">?</button><span class="aside" id="epAside"></span></header>
+      <div class="epsum" id="epSum"></div>
+      <div class="eptable" id="epTable"></div>
+    </section>
+
+    <details class="card stats">
+      <summary><h3 data-i18n="stats.title">计算</h3><span class="aside" id="statsAside"></span></summary>
+      <div id="stats"></div>
+    </details>
+  </aside>
+
+  <!-- 常见晕弧 -->
+  <div class="pop presets" id="presetsPop" role="menu" hidden></div>
+
+  <!-- 术语表 -->
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="sheet" id="sheet" data-i18n-aria="sheet.aria" aria-label="术语表" hidden>
+    <header>
+      <h2 data-i18n="sheet.title">术语</h2>
+      <p data-i18n="sheet.sub">每个词先说它管什么事, 符号放在最后.</p>
+      <button class="icon-btn" id="btnSheetClose" data-i18n-aria="sheet.close" aria-label="关闭">
+        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </button>
+      <nav id="sheetNav"></nav>
+    </header>
+    <div class="sheet-body" id="sheetBody"></div>
+  </aside>
+
+  <div class="tip" id="tip" role="tooltip" hidden></div>
+</div>
+<script>/*__JS__*/</script>
+</body>
+</html>

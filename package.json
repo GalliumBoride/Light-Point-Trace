@@ -1,0 +1,20 @@
+{
+  "name": "lightpoint-trace",
+  "version": "1.1.0",
+  "description": "Light-Point Halo Tracer — exact ice-halo arcs, fences, caustics and endpoints in a single offline HTML file",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/GalliumBoride/LightPointTrace.git" },
+  "homepage": "https://galliumboride.github.io/LightPointTrace/",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "serve": "node tools/serve.mjs",
+    "check-locales": "node tools/check-locales.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.2",
+    "three": "0.160.0"
+  }
+}

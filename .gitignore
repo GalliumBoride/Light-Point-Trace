@@ -1,0 +1,6 @@
+node_modules/
+# C# 参考引擎对账工具: 链接私有工程的源码, 不公开
+tools/csref/
+tools/compare.mjs
+tools/cases.json
+*.tmp.mjs
