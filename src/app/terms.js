@@ -8,7 +8,7 @@ export const GROUPS = ['basic', 'sky', 'ori', 'fence', 'ep', 'other'];
 /** 术语键 → 所属组 (顺序即术语表里的顺序). */
 export const TERM_GROUP = {
   lightpoint: 'basic', path: 'basic', faces: 'basic', orientation: 'basic', dof: 'basic',
-  sky: 'sky', mc: 'sky', projection: 'sky',
+  sky: 'sky', sphere: 'sky', mc: 'sky', projection: 'sky',
   oriplane: 'ori', refine: 'ori', lift3d: 'ori',
   valid: 'fence', fence: 'fence', entry: 'fence', seam: 'fence', tir: 'fence', exit: 'fence', aperture: 'fence',
   side: 'fence', formal: 'fence', caustic: 'fence', reach: 'fence',

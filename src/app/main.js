@@ -12,6 +12,7 @@ import { term, famInfo, skyName, epLabel, EP_KINDS } from './terms.js';
 import { PRESETS } from './presets.js';
 import { initGlossary } from './glossary.js';
 import { View3D, KIND3D } from './view3d.js';
+import { SphereView } from './sphere3d.js';
 import { t as tr, L, LANGS, setLang, detectLang, applyI18n } from './i18n.js';
 
 /* global WORKER_SRC */
@@ -61,6 +62,8 @@ const modeInfo = i => ({ ...MODE_META[i], ...L().modes[i] });
 const pool = new EnginePool(WORKER_SRC);
 const renderer = new Renderer($('cv'));
 const view3d = new View3D($('cv3'), $('cv3o'));
+const sphere = new SphereView($('cv4'), $('cv4o'));     // 视图 3: 从球外旁观天球
+sphere.onHover = h => readout3d(h);
 view3d.kz = S.kz;
 view3d.onHover = h => readout3d(h);
 S.lang = setLang(detectLang(S.lang));          // 记住的语言, 否则按浏览器语言
@@ -318,6 +321,10 @@ function doRender(chrome) {
     const V = viewState(false);
     view3d.setData(R, V);
     view3d.layout(V);
+  } else if (S.view === 3) {
+    const V = viewState(false);
+    sphere.setData(R, V);
+    sphere.layout(V);
   } else renderer.render(viewState(chrome), R);
   // 画面上没有东西可看时说一句为什么
   const note = $('emptyNote');
@@ -328,7 +335,7 @@ function doRender(chrome) {
       msg = tr('note.liftNone');
   } else if (R && R.paths.every(p => p.done)) {
     if (S.view === 1 && !R.params.twoDof) msg = tr('note.ori1dof');
-    else if (S.view === 0 && R.paths.every(p => (!p.mc || p.mc.length === 0) && (!p.sky || p.sky.every(s => s.pts.length === 0))))
+    else if ((S.view === 0 || S.view === 3) && R.paths.every(p => (!p.mc || p.mc.length === 0) && (!p.sky || p.sky.every(s => s.pts.length === 0))))
       msg = tr('note.skyNone');
   }
   note.hidden = !msg; note.textContent = msg; note.style.whiteSpace = 'pre-line';
@@ -396,7 +403,7 @@ function resetLifts() {
 }
 
 function readout3d(h) {
-  if (S.view !== 2) return;
+  if (S.view !== 2 && S.view !== 3) return;
   if (!h || !R) { updateReadout(null); return; }
   const ro = $('readout');
   ro.textContent = '';
@@ -541,6 +548,7 @@ function renderEndpoints() {
 
 function focusEndpoint(r, k, i) {
   if (S.view === 2) { view3d.focusEp(k, i); return; }
+  if (S.view === 3) { sphere.focusDir(r.D); return; }
   if (S.view === 0) {
     S.az = ((-r.az % 360) + 360) % 360; S.el = r.el;
     S.fov = Math.min(S.fov, 120); clampFov();
@@ -662,6 +670,7 @@ function localize() {
   if (S.probe) { $('probeCard').hidden = true; S.probe = null; }   // 位置查看的文字是当时生成的, 换语言后收起
   renderRead();
   view3d.requestDraw();
+  sphere.requestDraw();
   requestRender();
 }
 
@@ -695,18 +704,20 @@ function syncCam() {
 }
 
 function syncView() {
-  const v3 = S.view === 2;
+  const v3 = S.view === 2, sph = S.view === 3;
   document.querySelectorAll('#viewSeg button').forEach(b => b.classList.toggle('on', +b.dataset.view === S.view));
-  $('cv').hidden = v3; $('cv3').hidden = !v3; $('cv3o').hidden = !v3;
+  $('cv').hidden = v3 || sph; $('cv3').hidden = !v3; $('cv3o').hidden = !v3; $('cv4').hidden = !sph; $('cv4o').hidden = !sph;
   $('camSky').hidden = S.view !== 0;
   $('camOri').hidden = S.view !== 1;
   $('cam3d').hidden = !v3;
+  $('camSph').hidden = !sph;
   $('camPop').hidden = true;
-  $('viewQ').dataset.term = ['sky', 'oriplane', 'lift3d'][S.view];
+  $('viewQ').dataset.term = ['sky', 'oriplane', 'lift3d', 'sphere'][S.view];
   $('app').classList.toggle('view-ori', S.view === 1);
   $('app').classList.toggle('view-3d', v3);
   document.querySelectorAll('[data-l2]').forEach(e => { e.textContent = tr(v3 ? e.dataset.l3 : e.dataset.l2); });
   view3d.setActive(v3);
+  sphere.setActive(sph);
   updateReadout(null);
   renderCurves();
 }
@@ -738,7 +749,7 @@ function syncMode() {
 function updateReadout(e) {
   const ro = $('readout');
   ro.textContent = '';
-  const hint = tr(['hint.sky', 'hint.ori', 'hint.3d'][S.view]);
+  const hint = tr(['hint.sky', 'hint.ori', 'hint.3d', 'hint.sph'][S.view]);
   if (!e) { ro.append(el('span', '', hint)); return; }
   const r = $('cv').getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
   if (S.view === 0) {
@@ -863,7 +874,7 @@ function applyPreset(p) {
   $('inSun').value = p.sun; $('slSun').value = p.sun; $('ckSym').checked = S.sym;
   syncMode();
   if (p.cam) { S.az = p.cam[0]; S.el = p.cam[1]; S.fov = p.cam[2]; clampFov(); syncCam(); }
-  if (S.view !== 2) S.view = 0;
+  if (S.view === 1) S.view = 0;
   syncView();
   setPathText(p.path);
   compute();
@@ -872,7 +883,7 @@ function applyPreset(p) {
 // ============================================================ 导出
 function exportPng() {
   const now = new Date(), p2 = n => String(n).padStart(2, '0');
-  const name = `halo_${(R ? R.paths.map(p => p.name).join('_') : 'empty')}_${['sky', 'orient', '3d'][S.view]}_${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}.png`;
+  const name = `halo_${(R ? R.paths.map(p => p.name).join('_') : 'empty')}_${['sky', 'orient', '3d', 'sphere'][S.view]}_${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}.png`;
   const done = blob => {
     if (!blob) return;
     const a = document.createElement('a');
@@ -881,6 +892,7 @@ function exportPng() {
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   };
   if (S.view === 2) { view3d.snapshot(done); return; }
+  if (S.view === 3) { sphere.snapshot(done); return; }
   doRender(true);
   $('cv').toBlob(blob => { doRender(false); done(blob); }, 'image/png');
 }
@@ -1018,6 +1030,7 @@ function initControls() {
   bindNum('inFov', v => { S.fov = v; clampFov(); syncCam(); requestRender(); save(); });
   $('btnOriReset').addEventListener('click', () => { resetOriView(); requestRender(); save(); });
   document.querySelectorAll('[data-view3]').forEach(b => b.addEventListener('click', () => view3d.goView(b.dataset.view3)));
+  document.querySelectorAll('[data-sph]').forEach(b => b.addEventListener('click', () => sphere.goView(b.dataset.sph)));
   $('btnLift').addEventListener('click', () => { $('btnLift').textContent = tr(view3d.toggleLift() > 0.5 ? 'v3.lower' : 'v3.raise'); });
   $('ckDrops').checked = S.drops;
   $('ckDrops').addEventListener('change', () => { S.drops = $('ckDrops').checked; requestRender(); save(); });
@@ -1043,7 +1056,7 @@ function initControls() {
   window.addEventListener('keydown', e => {
     if (e.key === 'Escape') closePops();
     if (e.target.matches('input, select, textarea')) return;
-    if (e.key === 'v' || e.key === 'V') { S.view = (S.view + 1) % 3; syncView(); requestRender(); save(); }
+    if (e.key === 'v' || e.key === 'V') { S.view = { 0: 3, 3: 1, 1: 2, 2: 0 }[S.view]; syncView(); requestRender(); save(); }
   });
 
   syncMode(); syncView(); syncCam(); readApex(); syncMore(parsePaths(S.path));

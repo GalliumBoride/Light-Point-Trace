@@ -181,11 +181,14 @@
       <canvas id="cv"></canvas>
       <canvas id="cv3" hidden></canvas>
       <canvas id="cv3o" hidden></canvas>
+      <canvas id="cv4" hidden></canvas>
+      <canvas id="cv4o" hidden></canvas>
       <div class="progress" id="progress"></div>
 
       <div class="ov ov-tl">
         <div class="seg glass" id="viewSeg" role="tablist" data-i18n-aria="view.aria" aria-label="视图">
           <button role="tab" data-view="0" data-i18n="view.sky">天空</button>
+          <button role="tab" data-view="3" data-i18n="view.sph">天球</button>
           <button role="tab" data-view="1" data-i18n="view.ori">取向平面</button>
           <button role="tab" data-view="2" data-i18n="view.3d">3D 抬升</button>
         </div>
@@ -256,6 +259,16 @@
         </div>
         <div class="camgroup glass">
           <button class="cam" id="btnLift" data-i18n="v3.lower" data-i18n-title="v3.liftTitle" title="把曲面压回地面 / 抬起来">放下</button>
+        </div>
+      </div>
+
+      <div class="ov ov-bl" id="camSph" hidden>
+        <div class="camgroup glass">
+          <button class="cam" data-sph="oblique" data-i18n="sph.oblique" data-i18n-title="sph.obliqueTitle" title="从斜上方看整个天球">斜看</button>
+          <button class="cam" data-sph="sun" data-i18n="sph.sun" data-i18n-title="sph.sunTitle" title="从太阳那一侧的球外看过来">朝太阳</button>
+          <button class="cam" data-sph="top" data-i18n="sph.top" data-i18n-title="sph.topTitle" title="从天顶正上方往下看">头顶</button>
+          <button class="cam" data-sph="side" data-i18n="sph.side" data-i18n-title="sph.sideTitle" title="贴着地平面从侧面看">侧面</button>
+          <button class="qmark" data-term="sphere" data-i18n-aria="sph.q" aria-label="天球视图是什么">?</button>
         </div>
       </div>
 

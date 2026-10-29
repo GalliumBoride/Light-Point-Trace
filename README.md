@@ -9,6 +9,7 @@ Type a light path through a hexagonal ice crystal, for example `3-1-5`. The trac
 The whole tool is one HTML file. You can also download [`dist/LightPointTrace.html`](dist/LightPointTrace.html) and double-click it. It runs offline in any modern browser on Windows, macOS, Linux or a tablet.
 
 ![Sky view: upper and lower tangent arcs](docs/screenshot-sky.png)
+![Sphere view: the same arcs on the celestial sphere seen from outside](docs/screenshot-sphere.png)
 ![3D lift view of the same arcs](docs/screenshot-3d.png)
 
 ## What it shows
@@ -17,6 +18,7 @@ The whole tool is one HTML file. You can also download [`dist/LightPointTrace.ht
   - **Fences**: one validity condition is exactly critical, for example the sun grazing the entry face.
   - **The caustic**: many orientations pile their light onto the same direction, which gives the bright rim you see in photos.
 - **Endpoints.** These are where an arc really ends (●), folds back (▲), forms a cusp in the sky (✱), crosses a blue edge (×) or is cut off by a finite crystal (◆). Each one comes from a closed-form intersection: a quartic in one variable.
+- **Sphere.** The whole celestial sphere seen from outside: the observer at the center, the horizon plane cutting it in half, and the Sun, point cloud, lines and endpoints drawn on the sphere. Orbit around it to see each arc's true shape and where it sits relative to the Sun and the horizon.
 - **Orientation plane.** This is the same information drawn as a map of crystal orientations. Click any point and the panel lists, step by step, which condition fails for that orientation.
 - **3D lift.** The valid region of the orientation plane is lifted above the sky. Each orientation sits directly above the point where it sends the light, and its height is the second orientation angle. The surface stands vertical and folds back at the caustic; its shadow on the ground is the arc. This works for any path. One-angle modes (plate, Parry) give a lifted curve instead of a surface.
 - **Mirror fill-in.** Mirroring the sky left to right brings in the orientations and light path that produce the mirror half. These are drawn in the orientation plane too, for example 3-1-5 ↔ 3-2-5.
