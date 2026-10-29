@@ -155,7 +155,7 @@ export function getFamLines(P, ori, eps, fm, perX, perY, om, fx, regList) {
   }
   // 焦散补线 (原窗体没有): 焦散在出射临界篱笆外无定义 (J = NaN), 网格追踪总在离末端点一两个胞元处停下,
   // 或在贴着篱笆的细条里折回. 单独存放, par/sky 仍与原窗体逐点一致.
-  fl.conn = fm.kind === 6 && eps && eps.length ? causticConnectors(fl, eps, FV, P, om, fx) : { par: [], sky: [] };
+  fl.conn = fm.kind === 6 && eps && eps.length ? causticConnectors(fl, eps, FV, P, om, fx, tolJ) : { par: [], sky: [] };
   return fl;
 }
 
@@ -165,16 +165,24 @@ const D2R = Math.PI / 180;
  * 对每个没被焦散线够到的焦散末端点 (焦散∩篱笆), 从最近的线点连一段到它.
  * 中间点逐个解在 J = 0 上 (沿弦的法线找号变), 不是直线弦 — 贴篱笆处天球位置 ∝ √(到篱笆距离), 弦会偏得很明显.
  * 大部分中间点解不出焦散 → 两者之间本无焦散, 不连.
+ * 贴篱笆的焦散常是一条比胞元还细的长环: 网格在环变细处提前把它闭合, 尖端只剩一个两点残桩, 缺口可达好几度.
+ * 所以找起点时跳过残桩 (整条线不出 tolJ), 缺口超过 3° 时改为沿 J = 0 一步步走过去 (直弦离曲线太远).
  */
-function causticConnectors(fl, eps, FV, P, om, fx) {
+function causticConnectors(fl, eps, FV, P, om, fx, tolJ) {
   const out = { par: [], sky: [] };
   const TWO = 2 * Math.PI;
   const wrapD = d => d - TWO * rint(d / TWO);
+  const stub = fl.par.map(par => {
+    for (let i = 1; i < par.length / 2; i++)
+      if (Math.hypot(wrapD(par[2 * i] - par[0]), wrapD(par[2 * i + 1] - par[1])) > tolJ) return false;
+    return true;
+  });
   for (const er of eps) {
     if ((er.kind !== 'end' && er.kind !== 'cross') || !er.label.includes('焦散∩')) continue;
     const ex = er.sc * D2R, ey = er.sw * D2R;
     let best = Infinity, V = null, Vok = 1;
     for (let li = 0; li < fl.par.length; li++) {
+      if (stub[li]) continue;
       const par = fl.par[li], sky = fl.sky[li];
       for (let i = 0; i < par.length / 2; i++) {
         const dx = wrapD(par[2 * i] - ex), dy = wrapD(par[2 * i + 1] - ey), dd = dx * dx + dy * dy;
@@ -183,20 +191,26 @@ function causticConnectors(fl, eps, FV, P, om, fx) {
     }
     if (V === null) continue;
     const dist = Math.sqrt(best);
-    if (dist < 0.08 * D2R || dist > 3 * D2R) continue;          // 已经够到 / 太远 (不是这条线的端)
+    if (dist < 0.08 * D2R || dist > 8 * D2R) continue;          // 已经够到 / 太远 (不是这条线的端)
     const E = [V[0] - wrapD(V[0] - ex), V[1] - wrapD(V[1] - ey)];   // 平移到 V 的展开分支
-    const tx = (E[0] - V[0]) / dist, ty = (E[1] - V[1]) / dist;
-    const N = Math.max(4, Math.ceil(dist / (0.04 * D2R)));
-    const h = Math.max(0.3 * dist, 0.05 * D2R);
-    const pts = [V];
-    let solved = 0;
-    for (let k = 1; k < N; k++) {
-      const Q = [V[0] + (E[0] - V[0]) * k / N, V[1] + (E[1] - V[1]) * k / N];
-      const q = causticOnNormal(FV, Q, -ty, tx, h);
-      if (q !== null) { pts.push(q); solved++; }
+    let pts;
+    if (dist > 3 * D2R) {
+      pts = walkCaustic(FV, V, E, dist);
+      if (pts === null) continue;
+    } else {
+      const tx = (E[0] - V[0]) / dist, ty = (E[1] - V[1]) / dist;
+      const N = Math.max(4, Math.ceil(dist / (0.04 * D2R)));
+      const h = Math.max(0.3 * dist, 0.05 * D2R);
+      pts = [V];
+      let solved = 0;
+      for (let k = 1; k < N; k++) {
+        const Q = [V[0] + (E[0] - V[0]) * k / N, V[1] + (E[1] - V[1]) * k / N];
+        const q = causticOnNormal(FV, Q, -ty, tx, h);
+        if (q !== null) { pts.push(q); solved++; }
+      }
+      if (solved < 0.6 * (N - 1)) continue;
+      pts.push(E);
     }
-    if (solved < 0.6 * (N - 1)) continue;
-    pts.push(E);
     const n = pts.length, par = new Float64Array(2 * n), sky = new Float64Array(4 * n);
     for (let i = 0; i < n; i++) {
       par[2 * i] = pts[i][0]; par[2 * i + 1] = pts[i][1];
@@ -207,6 +221,24 @@ function causticConnectors(fl, eps, FV, P, om, fx) {
     out.par.push(par); out.sky.push(sky);
   }
   return out;
+}
+
+// 从 V 沿 J = 0 走到 E (预测-校正, 步长 0.04°): 沿切线前进一步, 再在法线上解回曲线.
+// 解不出 / 折返 / 越走越远 → 这条线到不了 E, 返回 null.
+function walkCaustic(FV, V, E, dist) {
+  const s = 0.04 * D2R, pts = [V];
+  let C = V, tx = (E[0] - V[0]) / dist, ty = (E[1] - V[1]) / dist;
+  for (let k = 0, kMax = Math.ceil(2 * dist / s); k < kMax; k++) {
+    const dE = Math.hypot(E[0] - C[0], E[1] - C[1]);
+    if (dE < 1.5 * s) { pts.push(E); return pts; }
+    if (dE > 1.2 * dist) return null;
+    const q = causticOnNormal(FV, [C[0] + tx * s, C[1] + ty * s], -ty, tx, 3 * s);
+    if (q === null) return null;
+    const sx = q[0] - C[0], sy = q[1] - C[1], sl = Math.hypot(sx, sy);
+    if (!(sl > 1e-12) || sl > 4 * s || sx * tx + sy * ty <= 0) return null;
+    tx = sx / sl; ty = sy / sl; C = q; pts.push(q);
+  }
+  return null;
 }
 
 // 沿 Q + t·(nx,ny), t∈[−h,h] 找 J = 0, 取离 Q 最近的根. 一端越过出射篱笆 (J = NaN) 时,
