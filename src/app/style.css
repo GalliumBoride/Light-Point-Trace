@@ -474,3 +474,6 @@ input[type="range"] { flex: 1; min-width: 50px; height: 18px; margin: 0; accent-
 .lang select { height: 30px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-size: 12.5px; cursor: pointer; max-width: 9.5em; }
 .lang select:hover { border-color: var(--ink-3); }
 @media (max-width: 560px) { .lang svg { display: none; } }
+
+/* 右栏「图上的线」: 高亮时画整条 / 只画成立部分 */
+.hl-full { margin: 10px 0 6px; font-size: 12.5px; color: var(--ink-2); }

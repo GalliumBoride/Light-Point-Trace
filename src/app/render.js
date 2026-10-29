@@ -292,7 +292,7 @@ export class Renderer {
         }
         const rt = pr.ori.roots[fi], D = rt.D, ok = rt.ok;
         for (let i = 0; i < ok.length; i++)
-          this.plotSky(D[3 * i], D[3 * i + 1], D[3 * i + 2], ok[i] ? 3 : 2, col, ok[i] ? 1.0 : 0.30);
+          if (ok[i] || V.hlFull) this.plotSky(D[3 * i], D[3 * i + 1], D[3 * i + 2], ok[i] ? 3 : 2, col, ok[i] ? 1.0 : 0.30);
       });
     }
   }
@@ -308,7 +308,7 @@ export class Renderer {
           const full = V.checked.has(this.famLabel(pr, fm));
           if (!full && !V.arcs) return;
           const fl = pr.lines.get(fm.name); if (!fl) return;
-          this.drawLineSet(fl.sky, multi ? this.pcol(k) : this.pal(fi), full);
+          this.drawLineSet(fl.sky, multi ? this.pcol(k) : this.pal(fi), full && V.hlFull);
         });
       } else if (pr.sky && V.arcs) {
         pr.sky.forEach((s, fi) => {
@@ -552,7 +552,7 @@ export class Renderer {
             for (let a1 = 0; a1 < nx; a1++)
               for (let b1 = 0; b1 < ny; b1++) {
                 if (ok[i]) ras.dot(PX(wx[a1]), PY(wy[b1]), hot ? 3 : 2, col, 0.95);
-                else ras.dot(PX(wx[a1]), PY(wy[b1]), hot ? 2 : 1, col, hot ? 0.40 : 0.12);
+                else ras.dot(PX(wx[a1]), PY(wy[b1]), hot && V.hlFull ? 2 : 1, col, hot && V.hlFull ? 0.40 : 0.12);
               }
           }
         });
@@ -578,8 +578,8 @@ export class Renderer {
     });
     for (const { pr, k, fams, lines, mirror } of srcs)
       fams.forEach((fm, fi) => {
-        const full = !mirror && V.checked.has(this.famLabel(pr, fm));
-        if (!full && !V.arcs) return;
+        const hot = !mirror && V.checked.has(this.famLabel(pr, fm)), full = hot && V.hlFull;
+        if (!hot && !V.arcs) return;
         const fl = lines.get(fm.name); if (!fl) return;
         const col = multi ? this.pcol(k) : this.pal(fi);
         const okPath = new Path2D(), noPath = new Path2D();

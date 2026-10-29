@@ -257,6 +257,10 @@
           <button class="cam" data-view3="top" data-i18n="v3.top" data-i18n-title="v3.topTitle" title="从正上方看: 地面就是天空图">俯视</button>
           <button class="qmark" data-term="lift3d" data-i18n-aria="v3.q" aria-label="3D 抬升是什么">?</button>
         </div>
+        <div class="seg glass" id="baseSeg" role="group" data-i18n-aria="v3.baseAria" aria-label="地面">
+          <button data-base="flat" data-i18n="v3.flat" data-i18n-title="v3.flatTitle" title="地面是以太阳为中心的鱼眼天空图, 高度竖直向上">平面</button>
+          <button data-base="sphere" data-i18n="v3.sphere" data-i18n-title="v3.sphereTitle" title="地面是天球本身, 曲面沿径向抬离球面 (没有鱼眼变形)">天球</button>
+        </div>
         <div class="camgroup glass">
           <button class="cam" id="btnLift" data-i18n="v3.lower" data-i18n-title="v3.liftTitle" title="把曲面压回地面 / 抬起来">放下</button>
         </div>
@@ -297,7 +301,8 @@
     <section class="card">
       <header><h3 data-i18n="curves.title">图上的线</h3><button class="qmark" data-term="fence" data-i18n-aria="curves.q" aria-label="篱笆">?</button><span class="aside" id="curveAside"></span></header>
       <div class="curves" id="curves"></div>
-      <p class="foot" id="curveFoot" data-i18n="curves.foot">勾选一条线: 画出整条曲线 (淡色是延伸到光路不成立处的部分), 并用同色淡点铺出它的满足侧.</p>
+      <label class="switch hl-full" id="hlFullRow"><input type="checkbox" id="ckHlFull"><span class="sw"></span><span data-i18n="curves.full">高亮时也画光路不成立处的延伸 (淡色)</span></label>
+      <p class="foot" id="curveFoot" data-i18n="curves.foot">勾选一条线: 画出它、标出根点, 并用同色淡点铺出它的满足侧. 上面的开关决定画整条曲线, 还是只画光路成立的部分.</p>
     </section>
 
     <section class="card">

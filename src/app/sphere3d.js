@@ -229,7 +229,7 @@ export class SphereView {
                 const pts = new THREE.Points(g, new THREE.PointsMaterial({ color: hex(col), size: want ? 3 : 2, sizeAttenuation: false,
                                                                           transparent: true, opacity: want ? 1 : 0.3, depthWrite: false }));
                 pts.renderOrder = 3;
-                add(pts, 'roots', { pr, fm });
+                add(pts, want ? 'roots' : 'rootsNo', { pr, fm });
               }
             }
           }
@@ -279,7 +279,7 @@ export class SphereView {
     if (!this.gl) return;
     this.V = V;
     const cloudState = this._syncClouds(V);
-    const lk = [V.lineW, V.lines, V.arcs, V.mc, [...V.checked].join('|'), cloudState].join(',');
+    const lk = [V.lineW, V.lines, V.arcs, V.mc, V.hlFull, [...V.checked].join('|'), cloudState].join(',');
     if (lk !== this.layoutKey) {
       this.layoutKey = lk;
       for (const it of this.items) {
@@ -290,9 +290,10 @@ export class SphereView {
           it.obj.visible = V.lines && (V.arcs || full);
           it.obj.material.linewidth = it.role === 'line' ? (full ? 2 * V.lineW : V.lineW) : 0.6 * V.lineW;
         } else if (it.role === 'formal') {
-          it.obj.visible = V.lines && full;
+          it.obj.visible = V.lines && full && V.hlFull;
           it.obj.material.linewidth = 0.6 * V.lineW;
         } else if (it.role === 'roots') it.obj.visible = full;
+        else if (it.role === 'rootsNo') it.obj.visible = full && V.hlFull;
       }
       for (const c of this.clouds.values())
         for (const o of c.objs) o.visible = V.mc && V.checked.has(V.famKey(c.pr, c.fm.name));

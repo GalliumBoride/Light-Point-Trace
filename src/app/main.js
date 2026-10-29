@@ -29,7 +29,7 @@ const DEFAULTS = {
   xw: 360, yw: 360, xc: 180, yc: 180,
   arcs: true, mc: true, lines: true, endpoints: true, sym: false,
   lineW: 2, mcSize: 1, checked: [], introDone: false, tab: 'setup', moreOpen: false,
-  kz: 1.6, liftRef: 'auto', drops: true, lang: '', zenHalf: false,
+  kz: 1.6, liftRef: 'auto', drops: true, lang: '', zenHalf: false, hlFull: true, liftBase: 'flat',
 };
 
 const S = (() => {
@@ -65,6 +65,7 @@ const view3d = new View3D($('cv3'), $('cv3o'));
 const sphere = new SphereView($('cv4'), $('cv4o'));     // 视图 3: 从球外旁观天球
 sphere.onHover = h => readout3d(h);
 view3d.kz = S.kz;
+view3d.base = S.liftBase === 'sphere' ? 'sphere' : 'flat';
 view3d.onHover = h => readout3d(h);
 S.lang = setLang(detectLang(S.lang));          // 记住的语言, 否则按浏览器语言
 const glossary = initGlossary();
@@ -308,7 +309,7 @@ function viewState(chrome) {
     view: S.view, lens: S.lens, az: S.az, el: S.el, fov: S.fov, xw: S.xw, yw: S.yw, xc: S.xc, yc: S.yc,
     mc: S.mc, arcs: S.arcs, lines: S.lines, endpoints: S.endpoints, sym: S.sym,
     lineW: S.lineW, mcSize: S.mcSize, dragging, checked: S.checked, probe: S.view === 1 ? S.probe : null,
-    hoverEp: S.hoverEp, chrome, title, famTitle, skyTitle, drops: S.drops,
+    hoverEp: S.hoverEp, chrome, title, famTitle, skyTitle, drops: S.drops, hlFull: S.hlFull,
     famKey: (pr, name) => (R && R.paths.length > 1 ? pr.name + '·' + name : name),
     axes: axesMeta(R ? R.params.om : modeParams(S.mode, S.fixed).om),
   };
@@ -488,6 +489,7 @@ function renderCurves() {
   });
   $('curveAside').textContent = n ? tr('curves.count', { n }) : '';
   $('curveFoot').hidden = !P.twoDof;
+  $('hlFullRow').hidden = !P.twoDof;
 }
 
 function renderEndpoints() {
@@ -1032,6 +1034,14 @@ function initControls() {
   document.querySelectorAll('[data-view3]').forEach(b => b.addEventListener('click', () => view3d.goView(b.dataset.view3)));
   document.querySelectorAll('[data-sph]').forEach(b => b.addEventListener('click', () => sphere.goView(b.dataset.sph)));
   $('btnLift').addEventListener('click', () => { $('btnLift').textContent = tr(view3d.toggleLift() > 0.5 ? 'v3.lower' : 'v3.raise'); });
+  $('ckHlFull').checked = S.hlFull;
+  $('ckHlFull').addEventListener('change', () => { S.hlFull = $('ckHlFull').checked; requestRender(); save(); });
+  // 3D 抬升的地面: 平面鱼眼图 / 天球
+  const syncBase = () => document.querySelectorAll('#baseSeg button').forEach(b => b.classList.toggle('on', b.dataset.base === view3d.base));
+  syncBase();
+  document.querySelectorAll('#baseSeg button').forEach(b => b.addEventListener('click', () => {
+    S.liftBase = b.dataset.base; view3d.setBase(S.liftBase); syncBase(); save();
+  }));
   $('ckDrops').checked = S.drops;
   $('ckDrops').addEventListener('change', () => { S.drops = $('ckDrops').checked; requestRender(); save(); });
   $('slKz').value = S.kz; $('outKz').textContent = S.kz.toFixed(1);
