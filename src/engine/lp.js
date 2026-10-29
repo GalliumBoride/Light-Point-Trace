@@ -6,9 +6,18 @@
 import { DotNetRandom } from './random.js';
 import { AP, apMargin, apOk, apSupports } from './aperture.js';
 
-export const N_ICE = 1.31;
-export const K = N_ICE * N_ICE - 1.0;
-export const SqK = Math.sqrt(K);
+// 冰的折射率 (默认 1.31). 可调: setIndex 改了以后 K、√K 跟着变 — 各引擎模块都按名字读它们 (ES 模块活绑定)
+export let N_ICE = 1.31;
+export let K = N_ICE * N_ICE - 1.0;
+export let SqK = Math.sqrt(K);
+export function setIndex(n) {
+  N_ICE = n; K = n * n - 1.0; SqK = Math.sqrt(K);
+}
+/** 22° 晕的半径 = 60° 棱镜的最小偏向角 (度); n ≥ 2 时 60° 棱镜全反射, 没有这个晕 → NaN. */
+export function haloDeg() {
+  const s = 0.5 * N_ICE;
+  return s >= 1 ? NaN : 2 * Math.asin(s) * 180 / Math.PI - 60;
+}
 export const KC_ICE = 1.629;                    // c/a, 与后端 Crystal::kC 一致
 
 export const OMode = { Rot1: 0, ZenFree: 1, ZetaFixed: 2, AlphaFixed: 3 };

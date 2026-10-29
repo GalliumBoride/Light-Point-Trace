@@ -1,7 +1,7 @@
 // 计算流水线 — 与原窗体 Recompute → EnsureEndpoints → GetFamLines 的顺序一致.
 // Web Worker 与 Node 对账脚本共用这一份.
 
-import { LP, setSun, PathCtx, faceOk, trace2D, traceParry, mc2D, orientCompute, axesMeta, allFams } from './lp.js';
+import { LP, setSun, setIndex, PathCtx, faceOk, trace2D, traceParry, mc2D, orientCompute, axesMeta, allFams } from './lp.js';
 import { zenHalfOn, zenEdgeSky, zenHalfEndpoints } from './zenhalf.js';
 import { AP } from './aperture.js';
 import { computeEndpoints } from './ep.js';
@@ -13,6 +13,7 @@ import { getFamLines, apertureEndpoints } from './formlogic.js';
  */
 export function setConfig(cfg) {
   setSun(cfg.sun);
+  setIndex(Number.isFinite(cfg.n) && cfg.n > 1 ? cfg.n : 1.31);
   LP.partial = !!cfg.partial;
   LP.zenHalf = !!cfg.zenHalf;
   if (Number.isFinite(cfg.apexUp)) LP.upperApexDeg = cfg.apexUp;

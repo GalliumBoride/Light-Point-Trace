@@ -11,6 +11,7 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { drawEpGlyphOn } from './render.js';
 import { t } from './i18n.js';
+import { haloDeg } from '../engine/lp.js';
 
 const SKY = 10;                  // 天空 10° = 场景 1 个单位
 const Z0 = 2.0;                  // 高度零点 (折痕) 抬到的高度; 曲面最低处不够高时整体再抬
@@ -347,8 +348,8 @@ export class View3D {
     }
     line(grid, [150, 160, 178], 0.8, { opacity: 0.45 });
     line(circ(u => [r * Math.cos(2 * Math.PI * u), r * Math.sin(2 * Math.PI * u), 0], 360), [46, 139, 87], 1.8);
-    const c22 = Math.cos(21.84 * D2R), s22 = Math.sin(21.84 * D2R);
-    line(circ(u => [0, 1, 2].map(i => r * (c22 * A[i] + s22 * (Math.cos(2 * Math.PI * u) * b1[i] + Math.sin(2 * Math.PI * u) * b2[i]))), 240),
+    const c22 = Math.cos(haloDeg() * D2R), s22 = Math.sin(haloDeg() * D2R);
+    if (Number.isFinite(c22)) line(circ(u => [0, 1, 2].map(i => r * (c22 * A[i] + s22 * (Math.cos(2 * Math.PI * u) * b1[i] + Math.sin(2 * Math.PI * u) * b2[i]))), 240),
          [127, 136, 157], 1.3, { dashed: true });
     const sun = add(new THREE.Mesh(new THREE.SphereGeometry(0.12, 20, 14), new THREE.MeshBasicMaterial({ color: 0xf29a1a })));
     sun.position.set(...A.map(v => v * RSPH));
@@ -400,10 +401,10 @@ export class View3D {
     const gc = this.gcv2 || (this.gcv2 = document.createElement('canvas'));
     gc.width = W; gc.height = H;
     gc.getContext('2d').drawImage(cv, 0, 0);
-    // 22° 晕 (最小偏向角 21.84°)、地平线、太阳
+    // 22° 晕 (最小偏向角, n = 1.31 时 21.84°)、地平线、太阳
     ctx.save();
     ctx.strokeStyle = '#7f889d'; ctx.lineWidth = Math.max(1.5, ppd * 0.12); ctx.setLineDash([ppd * 0.9, ppd * 0.7]);
-    ctx.beginPath(); ctx.arc(X(0), Y(0), 21.84 * ppd, 0, 2 * Math.PI); ctx.stroke();
+    if (Number.isFinite(haloDeg())) { ctx.beginPath(); ctx.arc(X(0), Y(0), haloDeg() * ppd, 0, 2 * Math.PI); ctx.stroke(); }
     ctx.strokeStyle = 'rgb(46,139,87)'; ctx.setLineDash([ppd * 0.3, ppd * 0.6]); ctx.lineWidth = Math.max(1.5, ppd * 0.14);
     ctx.beginPath();
     let pen = false;
@@ -585,7 +586,7 @@ export class View3D {
     const g = this.gext;
     if (g) {
       const a = -38 * D2R;
-      lab(21.84 * Math.cos(a), 21.84 * Math.sin(a), t('v3.haloLabel'), '#5d6679');
+      if (Number.isFinite(haloDeg())) lab(haloDeg() * Math.cos(a), haloDeg() * Math.sin(a), t('v3.haloLabel'), '#5d6679');
       const f = [0, 0];
       for (const deg of [62, 50, 40, 30, 20]) {
         fisheye(Math.cos(deg * D2R), -Math.sin(deg * D2R), 0, f);   // 太阳右侧

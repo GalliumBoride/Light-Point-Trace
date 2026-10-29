@@ -20,22 +20,23 @@ The whole tool is one HTML file. You can also download [`dist/LightPointTrace.ht
 - **Endpoints.** These are where an arc really ends (●), folds back (▲), forms a cusp in the sky (✱), crosses a blue edge (×) or is cut off by a finite crystal (◆). Each one comes from a closed-form intersection: a quartic in one variable.
 - **Sphere.** The whole celestial sphere seen from outside: the observer at the center, the horizon plane cutting it in half, and the Sun, point cloud, lines and endpoints drawn on the sphere. Orbit around it to see each arc's true shape and where it sits relative to the Sun and the horizon.
 - **Orientation plane.** This is the same information drawn as a map of crystal orientations. Click any point and the panel lists, step by step, which condition fails for that orientation.
-- **3D lift.** The valid region of the orientation plane is lifted above the sky. Each orientation sits directly above the point where it sends the light, and its height is the second orientation angle. The surface stands vertical and folds back at the caustic; its shadow on the ground is the arc. This works for any path. One-angle modes (plate, Parry) give a lifted curve instead of a surface.
+- **3D lift.** The valid region of the orientation plane is lifted above the sky. Each orientation sits directly above the point where it sends the light, and its height is the second orientation angle. The surface stands vertical and folds back at the caustic; its shadow on the ground is the arc. This works for any path. One-angle modes (plate, Parry) give a lifted curve instead of a surface. The ground can be the flat fisheye sky map or the celestial sphere itself, with the surface lifted radially.
 - **Mirror fill-in.** Mirroring the sky left to right brings in the orientations and light path that produce the mirror half. These are drawn in the orientation plane too, for example 3-1-5 ↔ 3-2-5.
 
 You can choose:
 - **Orientation**: column crystals (fixed c-axis tilt), plates, Parry, Lowitz. For Lowitz, ζ can make a full turn (0–360°) or only a half turn (0–180°); a half turn cuts the region off where the crystal lies flat, and that cut gets its own boundary curve and endpoints.
-- **Sun elevation.**
+- **Sun elevation**: −90° to 90°.
 - **Blue edge** (allow partial reflection).
-- **Pyramid faces**: by apex angle or Miller index.
+- **Refractive index** (default 1.31).
+- **Pyramid faces**: by apex angle or Miller index. The crystal picker can show a pyramidal crystal, so faces 13–18 / 23–28 can be clicked into the path.
 - **Real crystal size**: finite prism, aperture fences.
-- **Sky projection**: six choices.
+- **Sky camera**: six projections; view direction and field of view can be typed in the left panel.
 
 A built-in glossary explains every term in plain language first, symbols last. The interface is available in Chinese and English.
 
 ## How it works
 
-The method is called the *light-point method*. A ray direction is drawn as a point on a sphere: radius 1 in air, radius n = 1.31 in ice.
+The method is called the *light-point method*. A ray direction is drawn as a point on a sphere: radius 1 in air, radius n in ice (1.31 by default).
 - **Refraction** moves the point along the face normal from one sphere to the other.
 - **Internal reflection** mirrors the point in the face.
 

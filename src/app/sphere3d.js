@@ -9,6 +9,7 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { drawEpGlyphOn, skyColorIndex } from './render.js';
 import { t } from './i18n.js';
+import { haloDeg } from '../engine/lp.js';
 
 const RS = 1.004;                 // 球面上的点 / 线略浮在球面外, 不和球面打架
 const D2R = Math.PI / 180;
@@ -144,7 +145,7 @@ export class SphereView {
     const sun = new THREE.Mesh(new THREE.SphereGeometry(0.03, 20, 14), new THREE.MeshBasicMaterial({ color: 0xf29a1a, transparent: true }));
     sun.position.set(...A.map(v => v * RS)); sun.renderOrder = 3;
     add(sun, 'deco');
-    const b1 = [-Math.sin(h), 0, Math.cos(h)], b2 = [0, 1, 0], r22 = 21.84 * D2R, ring = [];
+    const b1 = [-Math.sin(h), 0, Math.cos(h)], b2 = [0, 1, 0], r22 = haloDeg() * D2R, ring = [];
     const onSph = (u, rr) => { const c = Math.cos(rr), s = Math.sin(rr), cu = Math.cos(u), su = Math.sin(u);
       return [0, 1, 2].map(i => RS * (c * A[i] + s * (cu * b1[i] + su * b2[i]))); };
     for (let i = 0; i < 240; i++) ring.push(...onSph(2 * Math.PI * i / 240, r22), ...onSph(2 * Math.PI * (i + 1) / 240, r22));

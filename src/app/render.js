@@ -2,7 +2,7 @@
 // 坐标一律用 CSS 像素; 点栅按 devicePixelRatio 放大. 白底 + 原窗体的 matplotlib 配色.
 // 标题与图例只画进导出的 PNG (屏幕上由界面承担).
 
-import { LP } from '../engine/lp.js';
+import { LP, haloDeg } from '../engine/lp.js';
 import { t, L } from './i18n.js';
 import { axisLabel } from './terms.js';
 
@@ -324,7 +324,7 @@ export class Renderer {
   drawLineSet(lines, col, full) {
     const V = this.V, p = this.proj, ctx = this.ctx;
     const okPath = new Path2D(), noPath = new Path2D();
-    const stepL = V.dragging ? 3 : 1;
+    const stepL = 1;                 // 拖动时也逐点连 (抽稀会让短线段、尖端的补线一闪一闪地消失)
     for (let mirror = 0; mirror < (V.sym ? 2 : 1); mirror++) {
       const ySign = mirror === 0 ? 1 : -1;
       for (const flat of lines) {
@@ -409,9 +409,9 @@ export class Renderer {
     const TH = LP.TH, A3 = LP.A3;
     this.drawCircle3D(t => [Math.cos(t), Math.sin(t), 0.0], T.horizon, 1.5);
     this.drawCircle3D(t => [Math.cos(TH) * Math.cos(t), Math.cos(TH) * Math.sin(t), Math.sin(TH)], T.circle, 1.1, [1.2, 2.6]);
-    const c22 = Math.cos(22 * Math.PI / 180), s22 = Math.sin(22 * Math.PI / 180);
+    const r22 = haloDeg() * Math.PI / 180, c22 = Math.cos(r22), s22 = Math.sin(r22);
     const b1 = [0, 1, 0], b2 = [-A3[2], 0, A3[0]];
-    this.drawCircle3D(t => [
+    if (Number.isFinite(r22)) this.drawCircle3D(t => [
       c22 * A3[0] + s22 * (Math.cos(t) * b1[0] + Math.sin(t) * b2[0]),
       c22 * A3[1] + s22 * (Math.cos(t) * b1[1] + Math.sin(t) * b2[1]),
       c22 * A3[2] + s22 * (Math.cos(t) * b1[2] + Math.sin(t) * b2[2])], T.circle, 1.0, [4.4, 2.4]);

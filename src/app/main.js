@@ -6,7 +6,7 @@ import { EnginePool } from './pool.js';
 import { Renderer, PLOT_THEMES, lensNames, fovMax, oriArea, css, lensTag, skyColorIndex } from './render.js';
 import { CrystalPreview } from './crystal.js';
 import { parsePaths, modeParams } from '../engine/formlogic.js';
-import { apexDegFromMiller, millerFromApexDeg, setSun, axesMeta, isPyramidFace, LP, SqK } from '../engine/lp.js';
+import { apexDegFromMiller, millerFromApexDeg, setSun, setIndex, axesMeta, isPyramidFace, LP, SqK } from '../engine/lp.js';
 import { apSupports } from '../engine/aperture.js';
 import { term, famInfo, skyName, epLabel, EP_KINDS } from './terms.js';
 import { PRESETS } from './presets.js';
@@ -29,7 +29,7 @@ const DEFAULTS = {
   xw: 360, yw: 360, xc: 180, yc: 180,
   arcs: true, mc: true, lines: true, endpoints: true, sym: false,
   lineW: 2, mcSize: 1, checked: [], introDone: false, tab: 'setup', moreOpen: false,
-  kz: 1.6, liftRef: 'auto', drops: true, lang: '', zenHalf: false, hlFull: true, liftBase: 'flat',
+  kz: 1.6, liftRef: 'auto', drops: true, lang: '', zenHalf: false, hlFull: true, liftBase: 'flat', nIce: 1.31, cryPyr: false,
 };
 
 const S = (() => {
@@ -168,10 +168,22 @@ function syncMore(paths) {
   $('apexGrid').classList.toggle('miller', S.apexMode === 1);
   const tags = $('moreTags');
   tags.textContent = '';
+  if (Math.abs(S.nIce - 1.31) > 1e-9) tags.append(el('span', '', tr('tag.n', { n: S.nIce })));
   if (pyr) tags.append(el('span', '', tr('tag.apex', { deg: S.apexUpEff.toFixed(1) })));
   if (S.real) tags.append(el('span', '', tr('tag.real')));
   if (S.real && paths && paths.length && !paths.some(apSupports))
     tags.append(el('span', '', tr('tag.realNoEffect')));
+  if (pyr) S.cryPyr = true;                      // 光路用了锥面: 晶体图自动换成锥晶, 才点得到那些面
+  syncCrystal();
+}
+
+/** 晶体图: 棱柱 / 锥晶 (锥面顶角取「更多选项」里的值). */
+function syncCrystal() {
+  document.querySelectorAll('#crySeg button').forEach(b => {
+    const on = (b.dataset.cry === '1') === !!S.cryPyr;
+    b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));
+  });
+  crystal.setShape(!!S.cryPyr, S.apexUpEff ?? 56, S.apexLoEff ?? 56);
 }
 
 function compute() {
@@ -179,15 +191,18 @@ function compute() {
   renderChain();
   const paths = parsePaths($('inPath').value);
   const sun = parseFloat($('inSun').value);
-  const sunOk = Number.isFinite(sun) && sun >= 0 && sun < 90;
+  const sunOk = Number.isFinite(sun) && sun >= -90 && sun <= 90;
+  const nIce = parseFloat($('inN').value), nOk = Number.isFinite(nIce) && nIce > 1 && nIce <= 3;
   $('inPath').classList.toggle('invalid', !paths && $('inPath').value.trim() !== '');
   $('inSun').closest('.numbox').classList.toggle('invalid', !sunOk);
-  if (!paths || !sunOk) {
-    setStatus('err', !paths ? 'status.badPath' : 'status.badSun');
+  $('inN').closest('.numbox').classList.toggle('invalid', !nOk);
+  if (!paths || !sunOk || !nOk) {
+    setStatus('err', !paths ? 'status.badPath' : !sunOk ? 'status.badSun' : 'status.badN');
     if (!sunOk) $('pathMsg').textContent = $('pathMsg').textContent || tr('path.errSun');
     return;
   }
-  S.path = $('inPath').value.trim(); S.sun = sun;
+  S.path = $('inPath').value.trim(); S.sun = sun; S.nIce = nIce;
+  setIndex(nIce);
   readApex();
   const { d, h } = readReal();
   syncMore(paths);
@@ -195,7 +210,7 @@ function compute() {
   setSun(sun);
   const zenHalf = S.mode === 3 && S.zenHalf;
   LP.zenHalf = zenHalf;                          // 主线程里也要知道取向平面的 ζ 范围 (画轴、回到全图)
-  const cfg = { sun, partial: S.partial, apexUp: S.apexUpEff, apexLo: S.apexLoEff, aperture: { on: S.real, dist: d, h }, zenHalf };
+  const cfg = { sun, n: nIce, partial: S.partial, apexUp: S.apexUpEff, apexLo: S.apexLoEff, aperture: { on: S.real, dist: d, h }, zenHalf };
   if (om + '|' + zenHalf !== lastAxes) { lastAxes = om + '|' + zenHalf; resetOriView(); }
   const twoDof = S.mode === 0 || S.mode === 3;
   const tasks = [], prs = [];
@@ -209,7 +224,7 @@ function compute() {
   const job = pool.compute(tasks);
   Rnext = {
     job, t0: performance.now(),
-    params: { sun, partial: S.partial, mode: S.mode, fixed: S.fixed, om, fx, twoDof, real: S.real, h, realTag: realTag(S.real, d, h), zenHalf },
+    params: { sun, n: nIce, partial: S.partial, mode: S.mode, fixed: S.fixed, om, fx, twoDof, real: S.real, h, realTag: realTag(S.real, d, h), zenHalf },
     paths: prs, oriLocal: null, clouds: new Map(), requestCloud,
   };
   S.probe = null; S.hoverEp = null; $('probeCard').hidden = true;
@@ -660,7 +675,7 @@ function localize() {
   document.title = tr('app.title');
   $('metaDesc').setAttribute('content', tr('app.desc'));
   $('selLang').value = S.lang;
-  for (const sel of [$('selLens'), $('selLens2')]) lensNames().forEach((n, i) => { if (sel.options[i]) sel.options[i].textContent = n; });
+  for (const sel of [$('selLens'), $('selLens2'), $('selLens3')]) lensNames().forEach((n, i) => { if (sel.options[i]) sel.options[i].textContent = n; });
   $('presetsPop').textContent = ''; buildPresets();
   glossary.rebuild();
   syncMode(); syncView(); syncCam(); syncMore(parsePaths(S.path)); renderChain();
@@ -701,7 +716,8 @@ function syncCam() {
   const set = (id, v) => { if (document.activeElement !== $(id)) $(id).value = String(Math.round(v * 10) / 10); };
   set('inAz', worldAz()); set('inEl', S.el); set('inFov', S.fov);
   $('btnCamNum').textContent = S.lens === 5 ? tr('cam.allSky') : `${Math.round(S.fov)}°`;
-  $('selLens').value = S.lens; $('selLens2').value = S.lens;
+  $('selLens').value = S.lens; $('selLens2').value = S.lens; $('selLens3').value = S.lens;
+  $('inFov').disabled = S.lens === 5;
   $('oriZoomVal').textContent = `${Math.round(S.xw)}°`;
 }
 
@@ -713,7 +729,6 @@ function syncView() {
   $('camOri').hidden = S.view !== 1;
   $('cam3d').hidden = !v3;
   $('camSph').hidden = !sph;
-  $('camPop').hidden = true;
   $('viewQ').dataset.term = ['sky', 'oriplane', 'lift3d', 'sphere'][S.view];
   $('app').classList.toggle('view-ori', S.view === 1);
   $('app').classList.toggle('view-3d', v3);
@@ -799,7 +814,9 @@ function initPointer() {
     if (!drag.moved) return;
     if (!dragging) { dragging = true; cv.classList.add('dragging'); }
     const W = cv.clientWidth, H = cv.clientHeight;
-    if (S.view === 0) {
+    if (S.view === 0 && S.lens === 5) {
+      S.az = ((S.az + dx * 180 / Math.max(1, Math.min(W / 2, H))) % 360 + 360) % 360;
+    } else if (S.view === 0) {
       const scale = S.fov / Math.max(200, Math.min(W, H));
       S.az = ((S.az - dx * scale) % 360 + 360) % 360;         // 内容跟随光标
       S.el = Math.max(-90, Math.min(90, S.el + dy * scale));
@@ -841,7 +858,7 @@ function zoom(f) {
 
 // ============================================================ 弹出层
 function closePops(except) {
-  for (const [pop, btn] of [['layersPop', 'btnLayers'], ['camPop', 'btnCamNum'], ['presetsPop', 'btnPresets']]) {
+  for (const [pop, btn] of [['layersPop', 'btnLayers'], ['presetsPop', 'btnPresets']]) {
     if (pop === except) continue;
     $(pop).hidden = true;
     $(btn).setAttribute('aria-expanded', 'false');
@@ -1014,7 +1031,7 @@ function initControls() {
     $(id).value = S[key]; $(out).textContent = S[key];
     $(id).addEventListener('input', () => { S[key] = +$(id).value; $(out).textContent = S[key]; requestRender(); save(); });
   }
-  for (const sel of [$('selLens'), $('selLens2')]) {          // 窄屏时投影选择挪进「图层」菜单
+  for (const sel of [$('selLens'), $('selLens2'), $('selLens3')]) {   // 工具条 / 窄屏「图层」菜单 / 左栏「相机」
     lensNames().forEach((n, i) => { const o = el('option', '', n); o.value = i; sel.append(o); });
     sel.value = S.lens;
     sel.addEventListener('change', () => { S.lens = +sel.value; clampFov(); syncCam(); requestRender(); save(); });
@@ -1026,7 +1043,12 @@ function initControls() {
     else lookAt(S.az, 90);                       // 只抬到天顶, 保留当前方位 (不把画面扭回方位 0)
   }));
   document.querySelectorAll('[data-zoom]').forEach(b => b.addEventListener('click', () => zoom(b.dataset.zoom === 'in' ? 0.8 : 1.25)));
-  $('btnCamNum').addEventListener('click', e => { e.stopPropagation(); togglePop('camPop', 'btnCamNum'); });
+  $('btnCamNum').addEventListener('click', () => {           // 精确数值在左栏「相机」里
+    setTab('setup');
+    $('stepCam').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    $('stepCam').classList.remove('flash'); void $('stepCam').offsetWidth; $('stepCam').classList.add('flash');
+    if (S.lens !== 5) $('inFov').focus();
+  });
   bindNum('inAz', v => { S.az = ((-v % 360) + 360) % 360; syncCam(); requestRender(); save(); });
   bindNum('inEl', v => { S.el = Math.max(-90, Math.min(90, v)); syncCam(); requestRender(); save(); });
   bindNum('inFov', v => { S.fov = v; clampFov(); syncCam(); requestRender(); save(); });
@@ -1034,6 +1056,12 @@ function initControls() {
   document.querySelectorAll('[data-view3]').forEach(b => b.addEventListener('click', () => view3d.goView(b.dataset.view3)));
   document.querySelectorAll('[data-sph]').forEach(b => b.addEventListener('click', () => sphere.goView(b.dataset.sph)));
   $('btnLift').addEventListener('click', () => { $('btnLift').textContent = tr(view3d.toggleLift() > 0.5 ? 'v3.lower' : 'v3.raise'); });
+  $('inN').value = S.nIce;
+  bindNum('inN', () => compute());
+  $('btnNReset').addEventListener('click', () => { $('inN').value = 1.31; compute(); });
+  document.querySelectorAll('#crySeg button').forEach(b => b.addEventListener('click', () => {
+    S.cryPyr = b.dataset.cry === '1'; syncCrystal(); save();
+  }));
   $('ckHlFull').checked = S.hlFull;
   $('ckHlFull').addEventListener('change', () => { S.hlFull = $('ckHlFull').checked; requestRender(); save(); });
   // 3D 抬升的地面: 平面鱼眼图 / 天球

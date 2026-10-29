@@ -217,14 +217,23 @@ export function computeLift(P, m, fx, fams, lines, eps, opts = {}) {
       const fl = lines.get(fm.name);
       if (!fl) continue;
       const pars = [...fl.par, ...(fl.conn ? fl.conn.par : [])], skys = [...fl.sky, ...(fl.conn ? fl.conn.sky : [])];
-      for (let li = 0; li < pars.length; li++)
-        for (let i = 0; i < pars[li].length / 2; i++) {
+      for (let li = 0; li < pars.length; li++) {
+        // Ĵ 在区域边界上也会是 0 (含 √T_E 和反射面的 q 因子: 出射临界、接缝 q = 0): 那种"焦散"一路贴着边界走,
+        // 不是折痕 (柱晶 3-5-6 的接缝和真折痕混在一起, 参考角在两者之间来回跳, 曲面成了一把扇子).
+        // 网格追出的线里连着贴边界 (裕度 < 1e-5) 的点去掉. 补线 (fl.conn) 是真焦散相切地伸到尖端末端点, 裕度按距离平方
+        // 降到 0, 全部留着; 网格线本来就在尖端前 1–2° 停下, 不会这样贴边界
+        const pl = pars[li], n = pl.length / 2, edge = new Uint8Array(n);
+        if (li < fl.par.length)
+          for (let i = 0; i < n; i++) edge[i] = margin(P, m, fx, wrap2Pi(pl[2 * i]), wrap2Pi(pl[2 * i + 1]), c) < 1e-5 ? 1 : 0;
+        for (let i = 0; i < n; i++) {
           if (!(skys[li][4 * i + 3] > 0.5)) continue;
-          const u = wrap2Pi(pars[li][2 * i]), v = wrap2Pi(pars[li][2 * i + 1]), r = compAt(u, v);
+          if (edge[i] && (i === 0 || edge[i - 1]) && (i === n - 1 || edge[i + 1])) continue;
+          const u = wrap2Pi(pl[2 * i]), v = wrap2Pi(pl[2 * i + 1]), r = compAt(u, v);
           if (r < 0 || !comps.get(r).fold) continue;
           if (!pts.has(r)) pts.set(r, []);
           pts.get(r).push([u, v]);
         }
+      }
     }
     for (const [r, list] of pts) if (list.length >= 10) comps.get(r).fold = list;
   }
