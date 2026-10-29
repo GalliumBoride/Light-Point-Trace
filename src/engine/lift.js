@@ -360,6 +360,26 @@ export function computeLift(P, m, fx, fams, lines, eps, opts = {}) {
     T = Uint32Array.from(keep);
   }
 
+  // ---------- 折痕参考靠不住的块退回平均模式 ----------
+  // 折痕不是方位 u 的单值函数时 (柱晶 3-1-5 太阳 28.5°: 折痕斜着进来, 又顺着 roll 往下拐), 「同一 u 上的折痕」
+  // 在几条分支之间跳, 曲面碎成锯齿. 直接查最终网格边上的高度跳变: 正常的块 (连透镜尖端) 相邻顶点差 < 0.05 rad,
+  // 碎掉的块有几百到上万条 0.15–1 rad 的跳变 — 超过 20 条就让这一块退回平均模式, 重算它的高度
+  const jumpN = new Map();
+  for (let t = 0; t < T.length; t += 3)
+    for (let s = 0; s < 3; s++) {
+      const a = T[t + s], b = T[t + (s + 1) % 3], r = cmp[a];
+      if (comps.get(r).fold && Math.abs(hv[a] - hv[b]) > 0.15) jumpN.set(r, (jumpN.get(r) || 0) + 1);
+    }
+  const redo = new Set([...jumpN].filter(([, n]) => n > 20).map(([r]) => r));
+  if (redo.size) {
+    for (const r of redo) comps.get(r).fold = null;
+    for (let k = 0; k < vu.length; k++) {
+      const o = comps.get(cmp[k]);
+      if (redo.has(cmp[k]) && Math.abs(wrapPi(vv[k] - o.ref)) > 0.92 * Math.PI) o.sinMode = true;
+    }
+    for (let k = 0; k < vu.length; k++) if (redo.has(cmp[k])) hv[k] = hvOf(cmp[k], vu[k], vv[k]);
+  }
+
   // ---------- 族线: 只留成立的段, 抬到同一高度规则下 ----------
   const outLines = [];
   for (const fm of fams) {
