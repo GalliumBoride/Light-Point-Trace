@@ -189,49 +189,113 @@ export class SphereView {
             add(pts, 'arc');
           }
         });
-      // 篱笆 / 焦散连线 (只画成立的段); 再画一份不做深度测试的淡色, 透出球背面
-      if (pr.ori && pr.lines)
+      // 篱笆 / 焦散连线: 成立的段常显, 再画一份不做深度测试的淡色透出球背面;
+      // 不成立的段 (形式延拓) 和根点只在右栏高亮这一族时画 — 同天空视图
+      if (pr.ori)
         pr.ori.fams.forEach((fm, fi) => {
-          const fl = pr.lines.get(fm.name);
-          if (!fl) return;
           const col = multi ? pcol : th.palette[fi % th.palette.length];
+          const fl = pr.lines && pr.lines.get(fm.name);
           for (const sy of mirrors) {
-            const seg = [];
-            for (const sky of fl.sky) {
-              for (let i = 0; i + 1 < sky.length / 4; i++) {
-                if (!(sky[4 * i + 3] > 0.5 && sky[4 * i + 7] > 0.5)) continue;
-                const a = [sky[4 * i], sy * sky[4 * i + 1], sky[4 * i + 2]], b = [sky[4 * i + 4], sy * sky[4 * i + 5], sky[4 * i + 6]];
-                const na = Math.hypot(...a) || 1, nb = Math.hypot(...b) || 1;
-                if (Math.hypot(a[0] / na - b[0] / nb, a[1] / na - b[1] / nb, a[2] / na - b[2] / nb) > 0.2) continue;
-                seg.push(...a.map(v => RS * v / na), ...b.map(v => RS * v / nb));
+            if (fl) {
+              const seg = [], segNo = [];
+              for (const sky of fl.sky) {
+                for (let i = 0; i + 1 < sky.length / 4; i++) {
+                  const a = [sky[4 * i], sy * sky[4 * i + 1], sky[4 * i + 2]], b = [sky[4 * i + 4], sy * sky[4 * i + 5], sky[4 * i + 6]];
+                  const na = Math.hypot(...a) || 1, nb = Math.hypot(...b) || 1;
+                  if (Math.hypot(a[0] / na - b[0] / nb, a[1] / na - b[1] / nb, a[2] / na - b[2] / nb) > 0.2) continue;
+                  (sky[4 * i + 3] > 0.5 && sky[4 * i + 7] > 0.5 ? seg : segNo).push(...a.map(v => RS * v / na), ...b.map(v => RS * v / nb));
+                }
+              }
+              if (seg.length) {
+                add(this._seg(seg, col, 2), 'line', { pr, fm });
+                add(this._seg(seg, col, 1.2, { ghost: true, opacity: 0.22 }), 'ghost', { pr, fm });
+              }
+              if (segNo.length) {
+                add(this._seg(segNo, col, 1.2, { opacity: 0.35 }), 'formal', { pr, fm });
+                add(this._seg(segNo, col, 0.8, { ghost: true, opacity: 0.12 }), 'formal', { pr, fm });
               }
             }
-            if (!seg.length) continue;
-            add(this._seg(seg, col, 2), 'line', { pr, fm });
-            add(this._seg(seg, col, 1.2, { ghost: true, opacity: 0.22 }), 'ghost', { pr, fm });
+            const rt = pr.ori.roots && pr.ori.roots[fi];
+            if (rt && rt.D && rt.ok.length) {
+              for (const want of [1, 0]) {
+                const pos = [];
+                for (let i = 0; i < rt.ok.length; i++) {
+                  if ((rt.ok[i] ? 1 : 0) !== want) continue;
+                  const x = rt.D[3 * i], y = sy * rt.D[3 * i + 1], z = rt.D[3 * i + 2], nn = Math.hypot(x, y, z) || 1;
+                  pos.push(RS * x / nn, RS * y / nn, RS * z / nn);
+                }
+                if (!pos.length) continue;
+                const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+                const pts = new THREE.Points(g, new THREE.PointsMaterial({ color: hex(col), size: want ? 3 : 2, sizeAttenuation: false,
+                                                                          transparent: true, opacity: want ? 1 : 0.3, depthWrite: false }));
+                pts.renderOrder = 3;
+                add(pts, 'roots', { pr, fm });
+              }
+            }
           }
         });
     });
+    this.clouds = new Map();
     this.layoutKey = null;
     this.layout(V);
+  }
+
+  /** 高亮的族要画「满足侧」点云: 没有就请主程序向 Worker 要, 到了建一份 (同天空视图). */
+  _syncClouds(V) {
+    const R = this.R;
+    if (!R || !V.mc) return '';
+    const multi = R.paths.length > 1, th = V.theme;
+    let state = '';
+    for (const pr of R.paths) {
+      if (!pr.ori) continue;
+      pr.ori.fams.forEach((fm, fi) => {
+        if (fm.sense === 0 || !V.checked.has(V.famKey(pr, fm.name))) return;
+        const key = pr.name + '|' + fm.name, cloud = R.clouds.get(key);
+        if (cloud === undefined && R.requestCloud) { R.requestCloud(pr, fm); return; }
+        if (!(cloud instanceof Float32Array)) return;
+        state += key + ';';
+        if (this.clouds.has(key)) return;
+        const objs = [];
+        for (const sy of V.sym ? [1, -1] : [1]) {
+          const n = cloud.length / 3, pos = new Float32Array(3 * n);
+          for (let i = 0; i < n; i++) {
+            const x = cloud[3 * i], y = sy * cloud[3 * i + 1], z = cloud[3 * i + 2], nn = Math.hypot(x, y, z) || 1;
+            pos[3 * i] = RS * x / nn; pos[3 * i + 1] = RS * y / nn; pos[3 * i + 2] = RS * z / nn;
+          }
+          const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+          const pts = new THREE.Points(g, new THREE.PointsMaterial({ color: hex(multi ? th.pathcol[R.paths.indexOf(pr) % th.pathcol.length] : th.palette[fi % th.palette.length]),
+                                                                   size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0.22, depthWrite: false }));
+          pts.renderOrder = 2;
+          this.dyn.add(pts); objs.push(pts);
+        }
+        this.clouds.set(key, { objs, pr, fm });
+      });
+    }
+    return state;
   }
 
   /** 只改显示 (图层开关、线宽、高亮的族). */
   layout(V) {
     if (!this.gl) return;
     this.V = V;
-    const lk = [V.lineW, V.lines, V.arcs, V.mc, [...V.checked].join('|')].join(',');
+    const cloudState = this._syncClouds(V);
+    const lk = [V.lineW, V.lines, V.arcs, V.mc, [...V.checked].join('|'), cloudState].join(',');
     if (lk !== this.layoutKey) {
       this.layoutKey = lk;
       for (const it of this.items) {
+        const full = it.fm && V.checked.has(V.famKey(it.pr, it.fm.name));
         if (it.role === 'mc') it.obj.visible = V.mc && V.arcs;
         else if (it.role === 'arc') it.obj.visible = V.arcs;
         else if (it.role === 'line' || it.role === 'ghost') {
-          const full = V.checked.has(V.famKey(it.pr, it.fm.name));
           it.obj.visible = V.lines && (V.arcs || full);
           it.obj.material.linewidth = it.role === 'line' ? (full ? 2 * V.lineW : V.lineW) : 0.6 * V.lineW;
-        }
+        } else if (it.role === 'formal') {
+          it.obj.visible = V.lines && full;
+          it.obj.material.linewidth = 0.6 * V.lineW;
+        } else if (it.role === 'roots') it.obj.visible = full;
       }
+      for (const c of this.clouds.values())
+        for (const o of c.objs) o.visible = V.mc && V.checked.has(V.famKey(c.pr, c.fm.name));
     }
     this.dirty = true;
   }
