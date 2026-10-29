@@ -7,7 +7,9 @@
 // 高度 = 第二个取向角 v (柱晶 roll / Lowitz ζ) 相对本连通块参考角的偏移 (弧度):
 //   'auto' — 本块在每个方位 u 上恰好有一处焦散 J = 0 时, 参考角取同一 u 的折痕 (折痕抬成水平线;
 //            柱晶 3-5 就是甜甜圈影子第 ③ 幅的 ρ − ρ_f);
-//   否则 / 'mean' — 本块的圆周平均, 跨度接近整圈时改用正弦.
+//   否则 / 'mean' — 本块的圆周平均, 跨度接近整圈时改用正弦;
+//   'dist' — 不用取向角: 高度 = ±(取向平面上到本块最近折痕的距离), 紫面 (J < 0) 在上. 折痕永远水平地落在 0,
+//            任何光路都像柱晶 3-5 那样上下两片 (Lowitz 的 ζ 沿弧一路从 0 爬到 180°, 取向角当高度时整片是斜坡).
 // 天空方向 → 鱼眼: 右 = 面向太阳时的右手边 (与「天空」视图同向), 上 = 太阳的"上".
 
 import { LP, K, SqK, chain3, newC3, jana3, axesMeta } from './lp.js';
@@ -51,7 +53,7 @@ export function fisheyeOf(Dx, Dy, Dz, out) {
 }
 
 /**
- * opts = { ref: 'auto' | 'mean', n: 网格边长 (默认 360), mcMs: 地面亮度蒙特卡洛的时间上限 }
+ * opts = { ref: 'auto' | 'mean' | 'dist', n: 网格边长 (默认 360), mcMs: 地面亮度蒙特卡洛的时间上限 }
  * lines: Map(族名 → { par: [rad 对], sky: [X,Y,Z,valid 四元组], conn: { par, sky } })
  * 返回 { n, uv (度), g (鱼眼度), hv (高度偏移, 弧度), jv (压缩后的雅可比, 定折痕两侧), tris, comps,
  *        lines: [{ name, kind, seg: Float32Array (gx,gy,hv)×2 }], eps: [{ gx, gy, hv } | null],
@@ -181,7 +183,8 @@ export function computeLift(P, m, fx, fams, lines, eps, opts = {}) {
       const fv = wrap2Pi(V(j) + 0.5 * (lo + hi) * dv);
       if (list) list.push(fv); else o.cols.set(i, [fv]);
     }
-  const wantFold = opts.ref !== 'mean';
+  const refMode = opts.ref === 'mean' || opts.ref === 'dist' ? opts.ref : 'auto';
+  const wantFold = refMode === 'auto';
   for (const o of comps.values()) {
     o.ref = Math.atan2(o.sumS, o.sumC);
     o.fold = null;
@@ -208,10 +211,8 @@ export function computeLift(P, m, fx, fams, lines, eps, opts = {}) {
         }
     return best;
   };
-  // 折痕参考角改用引擎追踪的 J = 0 焦散线 (根点二分到机器精度, 补线一直连到尖端的末端点);
-  // 只靠格列插值时, 透镜尖端附近折痕随方位变化极快, 夹取最近一列会差到 0.1 rad
-  if (!collapsed && wantFold) {
-    const pts = new Map();
+  // 引擎追踪的 J = 0 焦散线上能当折痕的点, 逐条线按序回调 fn(u, v, 块, 是否与上一个回调点断开)
+  const eachCrease = fn => {
     for (const fm of fams) {
       if (fm.kind !== 6) continue;
       const fl = lines.get(fm.name);
@@ -225,16 +226,25 @@ export function computeLift(P, m, fx, fams, lines, eps, opts = {}) {
         const pl = pars[li], n = pl.length / 2, edge = new Uint8Array(n);
         if (li < fl.par.length)
           for (let i = 0; i < n; i++) edge[i] = margin(P, m, fx, wrap2Pi(pl[2 * i]), wrap2Pi(pl[2 * i + 1]), c) < 1e-5 ? 1 : 0;
+        let brk = true;
         for (let i = 0; i < n; i++) {
-          if (!(skys[li][4 * i + 3] > 0.5)) continue;
-          if (edge[i] && (i === 0 || edge[i - 1]) && (i === n - 1 || edge[i + 1])) continue;
+          if (!(skys[li][4 * i + 3] > 0.5) || (edge[i] && (i === 0 || edge[i - 1]) && (i === n - 1 || edge[i + 1]))) { brk = true; continue; }
           const u = wrap2Pi(pl[2 * i]), v = wrap2Pi(pl[2 * i + 1]), r = compAt(u, v);
-          if (r < 0 || !comps.get(r).fold) continue;
-          if (!pts.has(r)) pts.set(r, []);
-          pts.get(r).push([u, v]);
+          if (r < 0) { brk = true; continue; }
+          fn(u, v, r, brk); brk = false;
         }
       }
     }
+  };
+  // 折痕参考角改用引擎追踪的 J = 0 焦散线 (根点二分到机器精度, 补线一直连到尖端的末端点);
+  // 只靠格列插值时, 透镜尖端附近折痕随方位变化极快, 夹取最近一列会差到 0.1 rad
+  if (!collapsed && wantFold) {
+    const pts = new Map();
+    eachCrease((u, v, r) => {
+      if (!comps.get(r).fold) return;
+      if (!pts.has(r)) pts.set(r, []);
+      pts.get(r).push([u, v]);
+    });
     for (const [r, list] of pts) if (list.length >= 10) comps.get(r).fold = list;
   }
   for (const o of comps.values())
@@ -253,8 +263,47 @@ export function computeLift(P, m, fx, fams, lines, eps, opts = {}) {
     const t = gap > 0 ? da / gap : 0;
     return Fv[a] + t * wrapPi(Fv[b] - Fv[a]);
   };
+  // 「距折痕」: 某点到本块折痕的距离 (周围 4×4 格: 登记的折痕线段取精确距离, 格点记住的最近点作远处的候选),
+  // 以及该点 J 的号 (边界上 J → 0, 往有效一侧挪一点再算)
+  const distAt = (o, u, v) => {
+    const D = o.dist, x = wrap2Pi(u), y = perV ? wrap2Pi(v) : v, S = D.segs;
+    const i0 = Math.floor(x / du - OFF), j0 = perV ? Math.floor(y / dv - OFF) : Math.floor((y - 1e-4) / dv);
+    let b = Infinity;
+    for (let i = i0 - 1; i <= i0 + 2; i++)
+      for (let j = j0 - 1; j <= j0 + 2; j++) {
+        if (!perV && (j < 0 || j >= nv)) continue;
+        const q = at(i, j);
+        if (D.ok[q] === Infinity) continue;
+        const a = wrapPi(x - D.su[q]), e = perV ? wrapPi(y - D.sv[q]) : y - D.sv[q], dd = a * a + e * e;
+        if (dd < b) b = dd;
+        const cl = D.cells.get(q);
+        if (cl)
+          for (const s of cl) {
+            const px = wrapPi(x - S[4 * s]), py = perV ? wrapPi(y - S[4 * s + 1]) : y - S[4 * s + 1];
+            const sx = S[4 * s + 2], sy = S[4 * s + 3], l2 = sx * sx + sy * sy;
+            const f = l2 > 0 ? Math.max(0, Math.min(1, (px * sx + py * sy) / l2)) : 0;
+            const ex = px - f * sx, ey = py - f * sy, d = ex * ex + ey * ey;
+            if (d < b) b = d;
+          }
+      }
+    return Math.sqrt(b);
+  };
+  const signAt = (u, v) => {
+    const tol = 1e-9 * (jScale || 1);
+    let J = jana3(u, v, m, fx, P);
+    if (Number.isFinite(J) && Math.abs(J) > tol) return J < 0 ? -1 : 1;
+    for (const e of [2e-3, 6e-3, 2e-2])
+      for (let k = 0; k < 8; k++) {
+        const u2 = u + e * Math.cos(k * Math.PI / 4), v2 = v + e * Math.sin(k * Math.PI / 4);
+        if (margin(P, m, fx, u2, v2, c) < 0) continue;
+        J = jana3(u2, v2, m, fx, P);
+        if (Number.isFinite(J) && Math.abs(J) > tol) return J < 0 ? -1 : 1;
+      }
+    return 1;
+  };
   const hvOf = (r, u, v) => {
     const o = comps.get(r);
+    if (o.dist) return -signAt(u, v) * distAt(o, u, v);
     if (o.fold) return wrapPi(v - foldRef(o, u));
     return o.sinMode ? Math.sin(v - o.ref) : wrapPi(v - o.ref);
   };
@@ -360,6 +409,77 @@ export function computeLift(P, m, fx, fams, lines, eps, opts = {}) {
     T = Uint32Array.from(keep);
   }
 
+  // ---------- 「距折痕」高度: ±(取向平面上到最近折痕的距离), 紫面 (J < 0) 在上 ----------
+  // 折痕 = 引擎的 J = 0 线 (精确; 过滤同上) + 最终网格里 J 变号的三角形内的零线段 (变号处距离必为 0, 曲面不会撕开).
+  // 距离: 每个格点记住离它最近的折痕点, 正反两遍扫描向邻居传 (周期轴再来一轮), 远处靠它;
+  // 近处 (一两格内) 按格子登记的折痕线段算点到线段的精确距离 — 每格只记一个点时, 折痕线上的点会差半格 (≈ 0.009 rad)
+  if (refMode === 'dist' && !collapsed) {
+    const seeds = new Map(), segOf = new Map(), h0 = 0.25 * Math.min(du, dv);
+    const cellI = x => Math.floor(x / du - OFF), cellJ = y => (perV ? Math.floor(y / dv - OFF) : Math.floor((y - 1e-4) / dv));
+    const addSeg = (r, ua, va, ub, vb) => {
+      const dU = wrapPi(ub - ua), dV = perV ? wrapPi(vb - va) : vb - va, len = Math.hypot(dU, dV);
+      if (len > 0.05) return;                                    // 跨缝 / 断开的大跳不连
+      let l = seeds.get(r), sg = segOf.get(r);
+      if (!l) { seeds.set(r, (l = [])); segOf.set(r, (sg = { segs: [], cells: new Map() })); }
+      for (let s = 0, k = Math.max(1, Math.ceil(len / h0)); s <= k; s++) l.push(ua + dU * s / k, va + dV * s / k);
+      const id = sg.segs.length / 4;
+      sg.segs.push(ua, va, dU, dV);
+      const i0 = cellI(Math.min(ua, ua + dU)), i1 = cellI(Math.max(ua, ua + dU));
+      const j0 = cellJ(Math.min(va, va + dV)), j1 = cellJ(Math.max(va, va + dV));
+      for (let i = i0; i <= i1; i++)
+        for (let j = j0; j <= j1; j++) {
+          if (!perV && (j < 0 || j >= nv)) continue;
+          const q = at(i, j), cl = sg.cells.get(q);
+          if (cl) { if (cl[cl.length - 1] !== id) cl.push(id); } else sg.cells.set(q, [id]);
+        }
+    };
+    let pu = 0, pv = 0, pr = -1;
+    eachCrease((u, v, r, brk) => {
+      if (brk || r !== pr) addSeg(r, u, v, u, v); else addSeg(r, pu, pv, u, v);
+      pu = u; pv = v; pr = r;
+    });
+    const xs = [];
+    for (let t = 0; t < T.length; t += 3) {
+      xs.length = 0;
+      for (let s = 0; s < 3; s++) {
+        const a = T[t + s], b = T[t + (s + 1) % 3];
+        if ((jv[a] < 0) === (jv[b] < 0)) continue;
+        const f = jv[a] / (jv[a] - jv[b]);
+        xs.push(vu[a] + f * wrapPi(vu[b] - vu[a]), vv[a] + f * (perV ? wrapPi(vv[b] - vv[a]) : vv[b] - vv[a]));
+      }
+      if (xs.length === 4) addSeg(cmp[T[t]], xs[0], xs[1], xs[2], xs[3]);
+    }
+    const NN = nu * nv;
+    const d2 = (q, x, y) => {
+      const a = wrapPi(x - U(Math.floor(q / nv))), b = perV ? wrapPi(y - V(q % nv)) : y - V(q % nv);
+      return a * a + b * b;
+    };
+    for (const [r, S] of seeds) {
+      const best = new Float64Array(NN).fill(Infinity), su = new Float64Array(NN), sv = new Float64Array(NN);
+      for (let s = 0; s < S.length; s += 2) {
+        const x = wrap2Pi(S[s]), y = perV ? wrap2Pi(S[s + 1]) : S[s + 1];
+        const i = Math.round(x / du - OFF), j = perV ? Math.round(y / dv - OFF) : Math.max(0, Math.min(nv - 1, Math.round((y - 1e-4) / dv)));
+        const q = at(i, j), dd = d2(q, x, y);
+        if (dd < best[q]) { best[q] = dd; su[q] = x; sv[q] = y; }
+      }
+      const pull = (q, i2, j2) => {
+        if (!perV && (j2 < 0 || j2 >= nv)) return;
+        const q2 = at(i2, j2);
+        if (best[q2] === Infinity) return;
+        const dd = d2(q, su[q2], sv[q2]);
+        if (dd < best[q]) { best[q] = dd; su[q] = su[q2]; sv[q] = sv[q2]; }
+      };
+      for (let rep = 0; rep < 2; rep++) {
+        for (let i = 0; i < nu; i++)
+          for (let j = 0; j < nv; j++) { const q = i * nv + j; pull(q, i - 1, j - 1); pull(q, i - 1, j); pull(q, i - 1, j + 1); pull(q, i, j - 1); }
+        for (let i = nu - 1; i >= 0; i--)
+          for (let j = nv - 1; j >= 0; j--) { const q = i * nv + j; pull(q, i + 1, j + 1); pull(q, i + 1, j); pull(q, i + 1, j - 1); pull(q, i, j + 1); }
+      }
+      comps.get(r).dist = { su, sv, ok: best, ...segOf.get(r) };
+    }
+    for (let k = 0; k < vu.length; k++) if (comps.get(cmp[k]).dist) hv[k] = (jv[k] < 0 ? 1 : -1) * distAt(comps.get(cmp[k]), vu[k], vv[k]);
+  }
+
   // ---------- 折痕参考靠不住的块退回平均模式 ----------
   // 折痕不是方位 u 的单值函数时 (柱晶 3-1-5 太阳 28.5°: 折痕斜着进来, 又顺着 roll 往下拐), 「同一 u 上的折痕」
   // 在几条分支之间跳, 曲面碎成锯齿. 直接查最终网格边上的高度跳变: 正常的块 (连透镜尖端) 相邻顶点差 < 0.05 rad,
@@ -368,11 +488,11 @@ export function computeLift(P, m, fx, fams, lines, eps, opts = {}) {
   for (let t = 0; t < T.length; t += 3)
     for (let s = 0; s < 3; s++) {
       const a = T[t + s], b = T[t + (s + 1) % 3], r = cmp[a];
-      if (comps.get(r).fold && Math.abs(hv[a] - hv[b]) > 0.15) jumpN.set(r, (jumpN.get(r) || 0) + 1);
+      if ((comps.get(r).fold || comps.get(r).dist) && Math.abs(hv[a] - hv[b]) > 0.15) jumpN.set(r, (jumpN.get(r) || 0) + 1);
     }
   const redo = new Set([...jumpN].filter(([, n]) => n > 20).map(([r]) => r));
   if (redo.size) {
-    for (const r of redo) comps.get(r).fold = null;
+    for (const r of redo) { comps.get(r).fold = null; comps.get(r).dist = null; }
     for (let k = 0; k < vu.length; k++) {
       const o = comps.get(cmp[k]);
       if (redo.has(cmp[k]) && Math.abs(wrapPi(vv[k] - o.ref)) > 0.92 * Math.PI) o.sinMode = true;
@@ -421,7 +541,7 @@ export function computeLift(P, m, fx, fams, lines, eps, opts = {}) {
     uv: Float32Array.from({ length: 2 * vu.length }, (_, q) => (q & 1 ? vv[q >> 1] : vu[q >> 1]) * R2D),
     g: Float32Array.from(g), hv: Float32Array.from(hv), jv: Float32Array.from(jv), tris: T,
     lines: outLines, eps: outEps, collapsed,
-    folds: [...comps.values()].filter(o => o.fold).length, comps: comps.size,
+    folds: [...comps.values()].filter(o => o.fold).length, dists: [...comps.values()].filter(o => o.dist).length, comps: comps.size,
     bbox: { x0, x1, y0, y1 },
     hist,
   };

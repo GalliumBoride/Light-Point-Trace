@@ -137,6 +137,7 @@ export default {
     'layers.ref': 'Height zero',
     'layers.refAuto': 'Crease (when it lines up)',
     'layers.refMean': 'Mean of this patch',
+    'layers.refDist': 'Distance to crease (normalized)',
 
     'cam.lens': 'Projection',
     'cam.sun': 'Sun',
@@ -432,13 +433,13 @@ export default {
       short: 'Lifts the working patch of the orientation plane up above the sky: each orientation sits directly above the spot in the sky where it sends light, at a height given by the second orientation angle. The ground is its shadow.',
       body: [
         'The question it answers: why does an arc in the sky have a bright edge, and why is the edge where it is? The orientation plane shows which orientations work; the sky view shows where the light lands. This view puts both in one 3D picture.',
-        'How it is laid out: every point on the surface is a working orientation. Horizontal position = where in the sky this orientation sends the light (the ground is an equidistant fisheye sky map centered on the sun, 10° grid, same left/right as the sky view); height = the second orientation angle (roll for Column, ζ for Lowitz), with this patch’s crease as zero. When the crease doesn’t line up (several creases, or none, at some azimuth), the patch’s mean is used as zero instead; you can also switch this in Layers.',
+        'How it is laid out: every point on the surface is a working orientation. Horizontal position = where in the sky this orientation sends the light (the ground is an equidistant fisheye sky map centered on the sun, 10° grid, same left/right as the sky view); height = the second orientation angle (roll for Column, ζ for Lowitz), with this patch’s crease as zero. When the crease doesn’t line up (several creases, or none, at some azimuth), the patch’s mean is used as zero instead; you can also switch this in Layers. The third choice, “distance to crease”, drops the orientation angle: height = distance to the nearest crease (measured in the orientation plane), purple side up and orange side down, so the crease always lies flat at 0. Along a Lowitz arc ζ climbs all the way from 0 to 180°, so with the angle as height the whole surface leans; this choice makes it read like Column 3-5.',
         'The ground can also be the celestial sphere itself (Flat / Sphere in the bottom-left toolbar): every point still sits in the sky direction where it sends light, and the height becomes the radial distance above the sphere. There is no fisheye stretching, so paths that cover most of the sky can be seen whole.',
         'How to read it: at the caustic (gold line, i.e. the crease) the surface stands vertical and folds back. There, many orientations stack above the same bit of sky, the shadow is densest, and that is the arc’s brightest edge. The surface is colored orange or purple by the sign of the Jacobian J: each bit of sky is covered once by each half.',
         'The gray level on the ground is the landing density of uniformly random orientations (log scale) — the same thing as the MC point cloud in the sky view. “Lower” presses the surface down to the ground, where it exactly covers its own shadow.',
         'Plate and Parry have only one random angle and no surface: lifted, they become a space curve whose shadow is the arc in the sky.',
       ],
-      tech: 'height = wrap(v − v_crease(u)) or wrap(v − v̄);  mesh: 360² marching squares + boundary bisection + subdivision by fisheye edge length',
+      tech: 'height = wrap(v − v_crease(u)) or wrap(v − v̄) or −sgn J · dist((u,v), crease);  mesh: 360² marching squares + boundary bisection + subdivision by fisheye edge length',
     },
     valid: {
       name: 'Validity conditions',
