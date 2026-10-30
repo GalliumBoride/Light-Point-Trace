@@ -13,6 +13,7 @@ import { PRESETS } from './presets.js';
 import { initGlossary } from './glossary.js';
 import { View3D, KIND3D } from './view3d.js';
 import { SphereView } from './sphere3d.js';
+import { TorusView } from './torus3d.js';
 import { t as tr, L, LANGS, setLang, detectLang, applyI18n } from './i18n.js';
 
 /* global WORKER_SRC */
@@ -30,7 +31,7 @@ const DEFAULTS = {
   arcs: true, mc: true, lines: true, endpoints: true, sym: false,
   lineW: 2, mcSize: 1, checked: [], introDone: false, tab: 'setup', moreOpen: false,
   kz: 1.6, liftRef: 'auto', drops: true, lang: '', zenHalf: false, hlFull: true, liftBase: 'flat', nIce: 1.31, cryPyr: false,
-  iso: false, isoW: 'fresnel', isoLv: '',
+  iso: false, isoW: 'fresnel', isoLv: '', oriTorus: false,
 };
 
 const S = (() => {
@@ -65,6 +66,10 @@ const renderer = new Renderer($('cv'));
 const view3d = new View3D($('cv3'), $('cv3o'));
 const sphere = new SphereView($('cv4'), $('cv4o'));     // 视图 3: 从球外旁观天球
 sphere.onHover = h => readout3d(h);
+const torus = new TorusView($('cv5'), $('cv5o'));     // 视图 1 的另一种样子: 取向平面卷成环面
+torus.onHover = h => { if (torusOn()) readoutOri(h ? h.x : null, h ? h.y : null); };
+torus.onPick = (x, y) => probeDeg(x, y);
+const torusOn = () => S.view === 1 && S.oriTorus;
 view3d.kz = S.kz;
 view3d.base = S.liftBase === 'sphere' ? 'sphere' : 'flat';
 view3d.onHover = h => readout3d(h);
@@ -344,7 +349,8 @@ function doRender(chrome) {
     const V = viewState(false);
     sphere.setData(R, V);
     sphere.layout(V);
-  } else renderer.render(viewState(chrome), R);
+  } else if (torusOn()) torus.setData(R, viewState(false));
+  else renderer.render(viewState(chrome), R);
   // 画面上没有东西可看时说一句为什么
   const note = $('emptyNote');
   let msg = '';
@@ -670,8 +676,10 @@ function probeAt(mx, my) {
   const plot = $('plot');
   const area = oriArea(plot.clientWidth, plot.clientHeight);
   if (mx < area.X || mx > area.X + area.W || my < area.Y || my > area.Y + area.H) return;
-  const px = (S.xc - S.xw / 2) + (mx - area.X) / area.W * S.xw;
-  const py = (S.yc + S.yw / 2) - (my - area.Y) / area.H * S.yw;
+  probeDeg((S.xc - S.xw / 2) + (mx - area.X) / area.W * S.xw, (S.yc + S.yw / 2) - (my - area.Y) / area.H * S.yw);
+}
+/** 位置查看: 取向平面上 (px, py)° 处 (平面图单击或环面单击) */
+function probeDeg(px, py) {
   S.probe = { x: px, y: py };
   requestRender();
   if (!R || !R.params.twoDof) return;
@@ -782,9 +790,13 @@ function syncCam() {
 function syncView() {
   const v3 = S.view === 2, sph = S.view === 3;
   document.querySelectorAll('#viewSeg button').forEach(b => b.classList.toggle('on', +b.dataset.view === S.view));
-  $('cv').hidden = v3 || sph; $('cv3').hidden = !v3; $('cv3o').hidden = !v3; $('cv4').hidden = !sph; $('cv4o').hidden = !sph;
+  const tor = torusOn();
+  $('cv').hidden = v3 || sph || tor; $('cv3').hidden = !v3; $('cv3o').hidden = !v3; $('cv4').hidden = !sph; $('cv4o').hidden = !sph;
+  $('cv5').hidden = !tor; $('cv5o').hidden = !tor;
   $('camSky').hidden = S.view !== 0;
   $('camOri').hidden = S.view !== 1;
+  document.querySelectorAll('#oriSeg button').forEach(b => b.classList.toggle('on', (b.dataset.torus === '1') === S.oriTorus));
+  $('oriTorusCam').hidden = !S.oriTorus; $('oriFlatCam').hidden = S.oriTorus; $('oriFlatZoom').hidden = S.oriTorus;
   $('cam3d').hidden = !v3;
   $('camSph').hidden = !sph;
   $('viewQ').dataset.term = ['sky', 'oriplane', 'lift3d', 'sphere'][S.view];
@@ -793,6 +805,7 @@ function syncView() {
   document.querySelectorAll('[data-l2]').forEach(e => { e.textContent = tr(v3 ? e.dataset.l3 : e.dataset.l2); });
   view3d.setActive(v3);
   sphere.setActive(sph);
+  torus.setActive(tor);
   updateReadout(null);
   renderCurves();
 }
@@ -824,7 +837,7 @@ function syncMode() {
 function updateReadout(e) {
   const ro = $('readout');
   ro.textContent = '';
-  const hint = tr(['hint.sky', 'hint.ori', 'hint.3d', 'hint.sph'][S.view]);
+  const hint = tr(torusOn() ? 'hint.torus' : ['hint.sky', 'hint.ori', 'hint.3d', 'hint.sph'][S.view]);
   if (!e) { ro.append(el('span', '', hint)); return; }
   const r = $('cv').getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
   if (S.view === 0) {
@@ -836,10 +849,16 @@ function updateReadout(e) {
   } else {
     const area = oriArea(r.width, r.height);
     if (x < area.X || x > area.X + area.W || y < area.Y || y > area.Y + area.H) { ro.append(el('span', '', hint)); return; }
-    const px = (S.xc - S.xw / 2) + (x - area.X) / area.W * S.xw, py = (S.yc + S.yw / 2) - (y - area.Y) / area.H * S.yw;
-    const ax = axesMeta(R ? R.params.om : modeParams(S.mode, S.fixed).om), per = v => ((v % 360) + 360) % 360;
-    ro.append(axName(ax.xl) + ' ', el('b', '', per(px).toFixed(1) + '°'), '  ' + axName(ax.yl) + ' ', el('b', '', per(py).toFixed(1) + '°'));
+    readoutOri((S.xc - S.xw / 2) + (x - area.X) / area.W * S.xw, (S.yc + S.yw / 2) - (y - area.Y) / area.H * S.yw);
   }
+}
+/** 取向平面 (平面图或环面) 上 (px, py)° 的读数; px 为 null = 不在图上 */
+function readoutOri(px, py) {
+  if (px === null) { updateReadout(null); return; }
+  const ro = $('readout');
+  ro.textContent = '';
+  const ax = axesMeta(R ? R.params.om : modeParams(S.mode, S.fixed).om), per = v => ((v % 360) + 360) % 360;
+  ro.append(axName(ax.xl) + ' ', el('b', '', per(px).toFixed(1) + '°'), '  ' + axName(ax.yl) + ' ', el('b', '', per(py).toFixed(1) + '°'));
 }
 
 // ============================================================ 鼠标 / 触控
@@ -960,7 +979,7 @@ function applyPreset(p) {
 // ============================================================ 导出
 function exportPng() {
   const now = new Date(), p2 = n => String(n).padStart(2, '0');
-  const name = `halo_${(R ? R.paths.map(p => p.name).join('_') : 'empty')}_${['sky', 'orient', '3d', 'sphere'][S.view]}_${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}.png`;
+  const name = `halo_${(R ? R.paths.map(p => p.name).join('_') : 'empty')}_${(torusOn() ? 'torus' : ['sky', 'orient', '3d', 'sphere'][S.view])}_${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}.png`;
   const done = blob => {
     if (!blob) return;
     const a = document.createElement('a');
@@ -970,6 +989,7 @@ function exportPng() {
   };
   if (S.view === 2) { view3d.snapshot(done); return; }
   if (S.view === 3) { sphere.snapshot(done); return; }
+  if (torusOn()) { torus.snapshot(done); return; }
   doRender(true);
   $('cv').toBlob(blob => { doRender(false); done(blob); }, 'image/png');
 }
@@ -1113,6 +1133,10 @@ function initControls() {
   $('btnOriReset').addEventListener('click', () => { resetOriView(); requestRender(); save(); });
   document.querySelectorAll('[data-view3]').forEach(b => b.addEventListener('click', () => view3d.goView(b.dataset.view3)));
   document.querySelectorAll('[data-sph]').forEach(b => b.addEventListener('click', () => sphere.goView(b.dataset.sph)));
+  document.querySelectorAll('#oriSeg button').forEach(b => b.addEventListener('click', () => {
+    S.oriTorus = b.dataset.torus === '1'; syncView(); requestRender(); save();
+  }));
+  document.querySelectorAll('[data-torus-view]').forEach(b => b.addEventListener('click', () => torus.goView(b.dataset.torusView)));
   $('btnLift').addEventListener('click', () => { $('btnLift').textContent = tr(view3d.toggleLift() > 0.5 ? 'v3.lower' : 'v3.raise'); });
   $('inN').value = S.nIce;
   bindNum('inN', () => compute());

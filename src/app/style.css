@@ -227,10 +227,10 @@ input[type="range"] { flex: 1; min-width: 50px; height: 18px; margin: 0; accent-
 .plot { position: relative; flex: 1; min-width: 0; border-radius: 14px; overflow: hidden; background: var(--paper); border: 1px solid var(--line); box-shadow: var(--shadow); }
 #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
 #cv.dragging { cursor: grabbing; }
-#cv3, #cv3o, #cv4, #cv4o { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-#cv3, #cv4 { touch-action: none; cursor: grab; }
-#cv3:active, #cv4:active { cursor: grabbing; }
-#cv3o, #cv4o { pointer-events: none; }
+#cv3, #cv3o, #cv4, #cv4o, #cv5, #cv5o { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#cv3, #cv4, #cv5 { touch-action: none; cursor: grab; }
+#cv3:active, #cv4:active, #cv5:active { cursor: grabbing; }
+#cv3o, #cv4o, #cv5o { pointer-events: none; }
 .only3d { display: none !important; }
 .view-3d .only3d { display: flex !important; }
 .view-3d .no3d { display: none !important; }

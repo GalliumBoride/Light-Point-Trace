@@ -209,6 +209,8 @@
       <canvas id="cv3o" hidden></canvas>
       <canvas id="cv4" hidden></canvas>
       <canvas id="cv4o" hidden></canvas>
+      <canvas id="cv5" hidden></canvas>
+      <canvas id="cv5o" hidden></canvas>
       <div class="progress" id="progress"></div>
 
       <div class="ov ov-tl">
@@ -262,12 +264,22 @@
       </div>
 
       <div class="ov ov-bl" id="camOri" hidden>
-        <div class="camgroup glass">
+        <div class="seg glass" id="oriSeg" role="group" data-i18n-aria="ori.shapeAria" aria-label="取向平面的样子">
+          <button data-torus="0" data-i18n="ori.flat" data-i18n-title="ori.flatTitle" title="摊开成一张 360° × 360° 的平面图, 可以拖动、缩放、细化">平面</button>
+          <button data-torus="1" data-i18n="ori.torus" data-i18n-title="ori.torusTitle" title="把左右边、上下边粘起来, 卷成甜甜圈: 两个角都是转一圈回到原处">环面</button>
+        </div>
+        <div class="camgroup glass" id="oriTorusCam" hidden>
+          <button class="cam" data-torus-view="oblique" data-i18n="tor.oblique" data-i18n-title="tor.obliqueTitle" title="从斜上方看整个环面">斜看</button>
+          <button class="cam" data-torus-view="top" data-i18n="tor.top" data-i18n-title="tor.topTitle" title="从正上方往下看: 外圈是纵轴 0°, 内圈是 180°">俯视</button>
+          <button class="cam" data-torus-view="side" data-i18n="tor.side" data-i18n-title="tor.sideTitle" title="贴着赤道从侧面看">侧面</button>
+          <button class="qmark" data-term="oriplane" data-i18n-aria="tor.q" aria-label="环面是什么">?</button>
+        </div>
+        <div class="camgroup glass" id="oriFlatCam">
           <button class="cam" id="btnOriReset" data-i18n="ori.reset" data-i18n-title="ori.resetTitle" title="回到完整的 360° × 360°">全图</button>
           <button class="cam" id="btnRefine" data-i18n="ori.refine" data-i18n-title="ori.refineTitle" title="对当前视窗重新细算 (第一条光路)">细化视窗</button>
           <button class="qmark" data-term="refine" data-i18n-aria="ori.refine" aria-label="细化视窗">?</button>
         </div>
-        <div class="camgroup glass zoom">
+        <div class="camgroup glass zoom" id="oriFlatZoom">
           <button class="cam icon" data-zoom="out" data-i18n-aria="ori.zoomOut" aria-label="缩小">−</button>
           <span class="cam val" id="oriZoomVal">360°</span>
           <button class="cam icon" data-zoom="in" data-i18n-aria="ori.zoomIn" aria-label="放大">+</button>
