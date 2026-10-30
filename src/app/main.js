@@ -3,7 +3,7 @@
 // 计算在 Worker 里 (每条光路: 天球 + 取向平面两个 Worker 并行), 分段回传: 弧 → 取向平面 → 末端点 → 连线.
 
 import { EnginePool } from './pool.js';
-import { Renderer, PLOT_THEMES, lensNames, fovMax, oriArea, css, lensTag, skyColorIndex } from './render.js';
+import { Renderer, PLOT_THEMES, lensNames, fovMax, oriArea, css, lensTag, skyColorIndex, ISO_COL } from './render.js';
 import { CrystalPreview } from './crystal.js';
 import { parsePaths, modeParams } from '../engine/formlogic.js';
 import { apexDegFromMiller, millerFromApexDeg, setSun, setIndex, axesMeta, isPyramidFace, LP, SqK } from '../engine/lp.js';
@@ -30,6 +30,7 @@ const DEFAULTS = {
   arcs: true, mc: true, lines: true, endpoints: true, sym: false,
   lineW: 2, mcSize: 1, checked: [], introDone: false, tab: 'setup', moreOpen: false,
   kz: 1.6, liftRef: 'auto', drops: true, lang: '', zenHalf: false, hlFull: true, liftBase: 'flat', nIce: 1.31, cryPyr: false,
+  iso: false, isoW: 'fresnel', isoLv: '',
 };
 
 const S = (() => {
@@ -324,7 +325,7 @@ function viewState(chrome) {
     view: S.view, lens: S.lens, az: S.az, el: S.el, fov: S.fov, xw: S.xw, yw: S.yw, xc: S.xc, yc: S.yc,
     mc: S.mc, arcs: S.arcs, lines: S.lines, endpoints: S.endpoints, sym: S.sym,
     lineW: S.lineW, mcSize: S.mcSize, dragging, checked: S.checked, probe: S.view === 1 ? S.probe : null,
-    hoverEp: S.hoverEp, chrome, title, famTitle, skyTitle, drops: S.drops, hlFull: S.hlFull,
+    hoverEp: S.hoverEp, chrome, title, famTitle, skyTitle, drops: S.drops, hlFull: S.hlFull, iso: S.iso && S.view !== 1 && S.view !== 2,
     famKey: (pr, name) => (R && R.paths.length > 1 ? pr.name + '·' + name : name),
     axes: axesMeta(R ? R.params.om : modeParams(S.mode, S.fixed).om),
   };
@@ -332,6 +333,8 @@ function viewState(chrome) {
 
 function doRender(chrome) {
   if (S.view === 1) ensureMirrors();
+  if (S.iso && (S.view === 0 || S.view === 3)) ensureIso();
+  renderIsoNote();
   if (S.view === 2) {
     ensureLifts();
     const V = viewState(false);
@@ -410,6 +413,60 @@ function ensureLifts() {
       if (--liftBusy === 0 && !Rnext) $('progress').classList.remove('on');
       if (T === R) requestRender();
     });
+  }
+}
+
+// ============================================================ 等光强线: 勾了图层、在天空 / 天球视图时才向 Worker 要
+const isoLevels = () => (S.isoLv || '').split(/[\s,，、;；]+/).map(Number).filter(v => Number.isFinite(v) && v > 0);
+const isoKey = () => [S.isoW, isoLevels().join(',')].join('|');
+function ensureIso() {
+  const T = R;
+  if (!T || !T.params.twoDof) return;
+  for (const pr of T.paths) {
+    if (pr.iso || pr.isoPending || !pr.lines || !pr.doneParts.has('ori')) continue;
+    const key = isoKey();
+    pr.isoPending = true;
+    liftBusy++; $('progress').classList.add('on');
+    pool.request(pr.oriSlot, { type: 'iso', weight: S.isoW, levels: isoLevels() }).then(d => {
+      pr.isoPending = false;
+      if (--liftBusy === 0 && !Rnext) $('progress').classList.remove('on');
+      pr.iso = key === isoKey() ? (d || { status: 'error', curves: [], levels: [] }) : undefined;   // 等待期间改了设置: 作废重算
+      if (T === R) requestRender();
+    });
+  }
+}
+function resetIso() {
+  if (R) for (const pr of R.paths) if (!pr.isoPending) pr.iso = undefined;
+  requestRender();
+}
+let isoNoteKey = '';
+/** 图层里等光强线一行下面的说明: 计算中 / 各级数值 (带颜色) / 为什么没有 */
+function renderIsoNote() {
+  const box = $('isoNote');
+  const parts = [];
+  if (S.iso && R) {
+    if (!R.params.twoDof) parts.push(['t', tr('iso.only2dof')]);
+    else for (const pr of R.paths) {
+      const d = pr.iso, name = R.paths.length > 1 ? pr.name + ': ' : '';
+      if (pr.isoPending || !d) parts.push(['t', name + tr('iso.busy')]);
+      else if (d.status === 'ok') parts.push(['lv', name, d.levels, (d.ms / 1000).toFixed(d.ms < 10000 ? 1 : 0), d.curves.length]);
+      else parts.push(['t', name + tr({ aperture: 'iso.aperture', degenerate: 'iso.degenerate', none: 'iso.none' }[d.status] || 'iso.err')]);
+    }
+  }
+  const key = JSON.stringify(parts) + S.lang;
+  if (key === isoNoteKey) return;
+  isoNoteKey = key;
+  box.textContent = '';
+  box.hidden = !parts.length;
+  for (const p of parts) {
+    const line = el('div', 'iso-line');
+    if (p[0] === 't') line.textContent = p[1];
+    else {
+      if (p[1]) line.append(el('span', '', p[1]));
+      p[2].forEach((c, k) => { const ch = el('span', 'iso-chip'); ch.style.setProperty('--c', css(ISO_COL[k % ISO_COL.length])); ch.textContent = String(c); line.append(ch); });
+      line.append(el('span', 'iso-meta', tr('iso.meta', { s: p[3], n: p[4] })));
+    }
+    box.append(line);
   }
 }
 
@@ -686,6 +743,7 @@ function localize() {
   $('btnLift').textContent = tr(view3d.lift > 0.5 ? 'v3.lower' : 'v3.raise');
   if (S.probe) { $('probeCard').hidden = true; S.probe = null; }   // 位置查看的文字是当时生成的, 换语言后收起
   renderRead();
+  renderIsoNote();
   view3d.requestDraw();
   sphere.requestDraw();
   requestRender();
@@ -1077,6 +1135,12 @@ function initControls() {
     S.kz = view3d.kz = +$('slKz').value; $('outKz').textContent = S.kz.toFixed(1);
     view3d.layoutKey = null; requestRender(); save();
   });
+  $('ckIso').checked = S.iso;
+  $('ckIso').addEventListener('change', () => { S.iso = $('ckIso').checked; requestRender(); save(); });
+  $('selIsoW').value = S.isoW;
+  $('selIsoW').addEventListener('change', () => { S.isoW = $('selIsoW').value; resetIso(); save(); });
+  $('inIsoLv').value = S.isoLv;
+  $('inIsoLv').addEventListener('change', () => { S.isoLv = $('inIsoLv').value.trim(); resetIso(); save(); });
   $('selLiftRef').value = S.liftRef;
   $('selLiftRef').addEventListener('change', () => { S.liftRef = $('selLiftRef').value; resetLifts(); save(); });
   $('btnRefine').addEventListener('click', refineWindow);

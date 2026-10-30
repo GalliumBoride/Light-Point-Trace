@@ -1,7 +1,7 @@
 // 计算 Worker. 每条光路分两个 Worker 并行:
 //   part='sky' : 天球边界点 (Trace2D / Parry) + MC                       → sky, done
 //   part='ori' : 取向平面 601² → 末端点 → 连线 (仅 2DOF)               → ori, eps, lines, done
-// ori Worker 保留该光路状态, 供点云 / 细化视窗 / 位置查看 / 3D 抬升 / 左右镜像按需请求 (cloud / refine / probe / lift / mirror → reply).
+// ori Worker 保留该光路状态, 供点云 / 细化视窗 / 位置查看 / 3D 抬升 / 左右镜像 / 等光强线按需请求 (cloud / refine / probe / lift / mirror / iso → reply).
 // 退化光路 (整块姿态压成天上一条线, J ≡ 0) 不追踪焦散: 那里只有舍入噪声 (见 engine/collapse.js).
 
 import { setConfig, computeSky, computeOri, computeEps, computeLines } from './engine/pipeline.js';
@@ -9,6 +9,7 @@ import { modeParams, sampleCloud, epAlive } from './engine/formlogic.js';
 import { PathCtx, orientCompute, Chain3, validAt, skyD } from './engine/lp.js';
 import { apMargin } from './engine/aperture.js';
 import { computeLift, computeLift1 } from './engine/lift.js';
+import { computeIso } from './engine/iso.js';
 import { isCollapsed, isCausticEp } from './engine/collapse.js';
 import { mirrorPath } from './engine/mirror.js';
 
@@ -154,6 +155,10 @@ self.onmessage = e => {
     } else if (m.type === 'lift') {
       if (!pr.lines) return post({ type: 'reply', rid: m.rid, data: null });
       post({ type: 'reply', rid: m.rid, data: computeLift(pr.P, om, fx, pr.ori.fams, pr.lines, pr.eps, { ref: m.ref }) });
+    } else if (m.type === 'iso') {
+      if (!pr.lines) return post({ type: 'reply', rid: m.rid, data: null });
+      if (pr.collapsed) return post({ type: 'reply', rid: m.rid, data: { status: 'degenerate', curves: [], levels: [] } });
+      post({ type: 'reply', rid: m.rid, data: computeIso(pr.P, om, fx, pr.ori.fams, pr.lines, { weight: m.weight, levels: m.levels }) });
     } else if (m.type === 'probe') {
       const sc = m.x * Math.PI / 180, sw = m.y * Math.PI / 180;
       const c = Chain3(sc, sw, om, fx, pr.P);

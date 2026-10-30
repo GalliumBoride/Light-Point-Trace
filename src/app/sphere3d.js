@@ -7,7 +7,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
-import { drawEpGlyphOn, skyColorIndex } from './render.js';
+import { drawEpGlyphOn, skyColorIndex, ISO_COL } from './render.js';
 import { t } from './i18n.js';
 import { haloDeg } from '../engine/lp.js';
 
@@ -129,7 +129,7 @@ export class SphereView {
   setData(R, V) {
     this._init();
     this.V = V;
-    const key = R ? [R.job, V.sym, ...R.paths.map(p => [!!p.mc, !!p.sky, !!p.lines, !!p.eps].join(''))].join('|') : '';
+    const key = R ? [R.job, V.sym, ...R.paths.map(p => [!!p.mc, !!p.sky, !!p.lines, !!p.eps, p.iso ? p.iso.curves.length + ':' + (p.iso.levels || []).join(',') : ''].join(''))].join('|') : '';
     if (key === this.key) return;
     this.key = key;
     for (const o of [...this.dyn.children]) { this.dyn.remove(o); o.geometry && o.geometry.dispose(); }
@@ -236,6 +236,20 @@ export class SphereView {
           }
         });
     });
+    // 等光强线 (勾了图层才显示)
+    R.paths.forEach(pr => {
+      const d = pr.iso;
+      if (!d || d.status !== 'ok') return;
+      for (const sy of mirrors) for (const cv of d.curves) {
+        const k = d.levels.indexOf(cv.c), col = ISO_COL[(k < 0 ? 0 : k) % ISO_COL.length], D = cv.D, seg = [];
+        for (let i = 0; i + 1 < D.length / 3; i++) {
+          const a = [D[3 * i], sy * D[3 * i + 1], D[3 * i + 2]], b = [D[3 * i + 3], sy * D[3 * i + 4], D[3 * i + 5]];
+          if (Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) > 0.2) continue;
+          seg.push(...a.map(v => RS * v), ...b.map(v => RS * v));
+        }
+        if (seg.length) add(this._seg(seg, col, 1.4), 'iso');
+      }
+    });
     this.clouds = new Map();
     this.layoutKey = null;
     this.layout(V);
@@ -280,7 +294,7 @@ export class SphereView {
     if (!this.gl) return;
     this.V = V;
     const cloudState = this._syncClouds(V);
-    const lk = [V.lineW, V.lines, V.arcs, V.mc, V.hlFull, [...V.checked].join('|'), cloudState].join(',');
+    const lk = [V.lineW, V.lines, V.arcs, V.mc, V.hlFull, V.iso, [...V.checked].join('|'), cloudState].join(',');
     if (lk !== this.layoutKey) {
       this.layoutKey = lk;
       for (const it of this.items) {
@@ -295,6 +309,7 @@ export class SphereView {
           it.obj.material.linewidth = 0.6 * V.lineW;
         } else if (it.role === 'roots') it.obj.visible = full;
         else if (it.role === 'rootsNo') it.obj.visible = full && V.hlFull;
+        else if (it.role === 'iso') { it.obj.visible = !!V.iso; it.obj.material.linewidth = 0.7 * V.lineW; }
       }
       for (const c of this.clouds.values())
         for (const o of c.objs) o.visible = V.mc && V.checked.has(V.famKey(c.pr, c.fm.name));

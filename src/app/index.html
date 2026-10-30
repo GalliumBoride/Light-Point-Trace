@@ -236,6 +236,10 @@
         <div class="pop-row"><span data-i18n="layers.lineW">线宽</span><input type="range" id="slLineW" min="1" max="6" step="0.5"><output id="outLineW"></output></div>
         <div class="pop-row no3d"><span data-i18n="layers.mcSize">点大小</span><input type="range" id="slMcSize" min="1" max="4" step="1"><output id="outMcSize"></output></div>
         <div class="pop-row narrow-only no3d"><span data-i18n="layers.lens">投影</span><select id="selLens2" data-i18n-aria="layers.lens" aria-label="投影"></select></div>
+        <label class="switch no3d noori"><input type="checkbox" id="ckIso"><span class="sw"></span><span data-i18n="layers.iso">等光强线</span> <button class="qmark" data-term="iso" aria-label="?">?</button></label>
+        <div class="pop-row no3d noori"><span data-i18n="layers.isoW">光强</span><select id="selIsoW" data-i18n-aria="layers.isoW" aria-label="光强"><option value="fresnel" data-i18n="layers.isoWF">投影面积 × Fresnel</option><option value="geo" data-i18n="layers.isoWG">只算几何密度</option></select></div>
+        <div class="pop-row no3d noori"><span data-i18n="layers.isoLv">等级 (/sr)</span><input type="text" id="inIsoLv" class="iso-lv" data-i18n-ph="layers.isoAuto" data-i18n-title="layers.isoLvTitle" placeholder="自动" title="留空自动取 4 级; 也可以填几个数, 如 0.05, 0.1, 0.3" spellcheck="false"></div>
+        <div class="iso-note no3d noori" id="isoNote" hidden></div>
         <div class="pop-row only3d"><span data-i18n="layers.kz">高度比例</span><input type="range" id="slKz" min="0.6" max="3" step="0.1"><output id="outKz"></output></div>
         <div class="pop-row only3d"><span data-i18n="layers.ref">高度零点</span><select id="selLiftRef" data-i18n-aria="layers.ref" aria-label="高度零点"><option value="auto" data-i18n="layers.refAuto">折痕 (能对齐时)</option><option value="mean" data-i18n="layers.refMean">本块平均</option><option value="dist" data-i18n="layers.refDist">距折痕 (归一化)</option></select></div>
       </div>
