@@ -12,8 +12,10 @@ import { computeLift, computeLift1 } from './engine/lift.js';
 import { computeIso } from './engine/iso.js';
 import { isCollapsed, isCausticEp } from './engine/collapse.js';
 import { mirrorPath } from './engine/mirror.js';
+import { famSpec, analyzeDof3, packDof3, mcDof3, spaceData, liftData } from './engine/dof3.js';
 
 let S = null;   // { pr: { P, faces, name, ori, eps }, om, fx, cfg }
+let S3 = null;  // 三自由度: { P, F, A, cfg }
 
 function f32(arr) { return arr instanceof Float32Array ? arr : Float32Array.from(arr); }
 
@@ -114,11 +116,32 @@ function oriStages(P, om, fx, emit) {
   return pr;
 }
 
+/** 三自由度 (第三个角在区间里): 两张端面各算一遍 2DOF (顺便发给界面画取向空间的顶/底面), 再求外轮廓与末端点 */
+function runDof3(m, P, F) {
+  const { job, idx } = m;
+  const slices = F.ends.map((e, si) => {
+    if (!e.face) { post({ type: 'slice', job, idx, si, z: e.z * 180 / Math.PI, face: false }); return { z: e.z, face: false }; }
+    const pr = oriStages(P, F.om, e.z, (sub, data, ms) => post({ type: 'slice', job, idx, si, z: e.z * 180 / Math.PI, face: true, sub, ms, ...data }));
+    return { z: e.z, face: true, fx: e.z, pr };
+  });
+  const t = performance.now();
+  const A = analyzeDof3(P, F, { slices, skipCaustic: slices.some(s => s.pr && s.pr.collapsed) });
+  S3 = { P, F, A, cfg: m.cfg };
+  post({ type: 'dof3', job, idx, d3: packDof3(A), ms: performance.now() - t });
+}
+
 function runCompute(m) {
   const t0 = performance.now();
   setConfig(m.cfg);
-  const { om, fx } = modeParams(m.modeIdx, m.fixedDeg);
   const P = new PathCtx(m.faces);
+  if (m.dof3) {
+    const F = famSpec(m.dof3.kind, m.dof3.lo, m.dof3.hi, m.cfg.zenHalf);
+    if (m.part === 'dof3') runDof3(m, P, F);
+    else { const mc = mcDof3(P, F, 400000); post({ type: 'sky', job: m.job, idx: m.idx, sky: [], mc: mc.D, ms: performance.now() - t0 }); }
+    post({ type: 'done', job: m.job, idx: m.idx, part: m.part, ms: performance.now() - t0 });
+    return;
+  }
+  const { om, fx } = modeParams(m.modeIdx, m.fixedDeg);
   if (m.part === 'ori') runOri(m, P, om, fx); else runSky(m, P, om, fx);
   post({ type: 'done', job: m.job, idx: m.idx, part: m.part, ms: performance.now() - t0 });
 }
@@ -133,6 +156,11 @@ self.onmessage = e => {
       const { om, fx } = modeParams(m.modeIdx, m.fixedDeg);
       const fixedV = m.modeIdx === 2 ? ((m.fixedDeg % 360) + 360) % 360 * Math.PI / 180 : 0;
       return post({ type: 'reply', rid: m.rid, data: computeLift1(new PathCtx(m.faces), om, fx, fixedV) });
+    }
+    if (m.type === 'space3' || m.type === 'lift3') {    // 三自由度的取向空间 / 抬升: 按需算
+      if (!S3) return post({ type: 'reply', rid: m.rid, data: null });
+      setConfig(S3.cfg);
+      return post({ type: 'reply', rid: m.rid, data: m.type === 'space3' ? spaceData(S3.P, S3.F, S3.A) : liftData(S3.P, S3.F, S3.A) });
     }
     if (!S || !S.pr) return post({ type: 'reply', rid: m.rid, data: null });
     setConfig(S.cfg);

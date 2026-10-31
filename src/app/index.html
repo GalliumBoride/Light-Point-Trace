@@ -125,6 +125,20 @@
         <span class="numbox"><input type="number" id="inFixed" step="1" data-i18n-aria="fixed.aria" aria-label="固定角"><i>°</i></span>
       </div>
       <p class="fixed-note" id="fixedNote"></p>
+      <div class="zen-row" id="rangeRow">
+        <span id="lbRange" data-i18n="range.label">第三个角</span>
+        <div class="seg mini" id="rangeSeg" role="radiogroup" data-i18n-aria="range.label" aria-label="第三个角">
+          <button role="radio" data-range="0" data-i18n="range.fixed">固定</button>
+          <button role="radio" data-range="1" data-i18n="range.span">一段范围</button>
+        </div>
+        <button class="qmark" data-term="dof3" data-i18n-aria="range.q" aria-label="第三个角放开是什么">?</button>
+      </div>
+      <div class="slider-row" id="range2Row" hidden>
+        <label for="slFixed2" id="lbFixed2">到</label>
+        <input type="range" id="slFixed2" min="0" max="180" step="1">
+        <span class="numbox"><input type="number" id="inFixed2" step="1" data-i18n-aria="range.toAria" aria-label="区间另一端"><i>°</i></span>
+      </div>
+      <p class="fixed-note" id="rangeNote" hidden></p>
       <div class="zen-row" id="zenRow" hidden>
         <span data-i18n="zen.label">ζ 转动范围</span>
         <div class="seg mini" id="zenSeg" role="radiogroup" data-i18n-aria="zen.label" aria-label="ζ 转动范围">
@@ -211,6 +225,8 @@
       <canvas id="cv4o" hidden></canvas>
       <canvas id="cv5" hidden></canvas>
       <canvas id="cv5o" hidden></canvas>
+      <canvas id="cv6" hidden></canvas>
+      <canvas id="cv6o" hidden></canvas>
       <div class="progress" id="progress"></div>
 
       <div class="ov ov-tl">
@@ -283,6 +299,15 @@
           <button class="cam icon" data-zoom="out" data-i18n-aria="ori.zoomOut" aria-label="缩小">−</button>
           <span class="cam val" id="oriZoomVal">360°</span>
           <button class="cam icon" data-zoom="in" data-i18n-aria="ori.zoomIn" aria-label="放大">+</button>
+        </div>
+      </div>
+
+      <div class="ov ov-bl" id="camD3" hidden>
+        <div class="camgroup glass">
+          <button class="cam" data-d3view="oblique" data-i18n="d3v.oblique" data-i18n-title="d3v.obliqueTitle" title="从斜上方看">斜看</button>
+          <button class="cam" data-d3view="top" data-i18n="d3v.top" data-i18n-title="d3v.topTitle" title="从正上方往下看">俯视</button>
+          <button class="cam" data-d3view="side" data-i18n="d3v.side" data-i18n-title="d3v.sideTitle" title="贴地侧看: 高度 = 第三个角">侧面</button>
+          <button class="qmark" id="d3Q" data-term="space3" data-i18n-aria="d3v.q" aria-label="这个视图是什么">?</button>
         </div>
       </div>
 

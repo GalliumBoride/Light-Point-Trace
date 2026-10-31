@@ -798,6 +798,13 @@ export function drawEpGlyphOn(ctx, sx, sy, kind, rim) {
     ctx.stroke();
     ctx.beginPath(); ctx.arc(sx, sy, 2.2, 0, 2 * Math.PI);
     ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 1.1; ctx.strokeStyle = rim; ctx.stroke();
+  } else if (kind === 'tan') {                       // 三自由度: 圆弧接上端面曲线
+    ctx.beginPath(); ctx.arc(sx, sy, 5.5, 0, 2 * Math.PI);
+    ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = rim; ctx.stroke();
+    ctx.beginPath(); ctx.arc(sx, sy, 2.6, 0, 2 * Math.PI); ctx.fillStyle = '#2ca02c'; ctx.fill();
+  } else if (kind === 'corner') {                    // 三自由度: 两段边相交
+    ctx.beginPath(); ctx.moveTo(sx, sy - 6); ctx.lineTo(sx + 6, sy); ctx.lineTo(sx, sy + 6); ctx.lineTo(sx - 6, sy); ctx.closePath();
+    ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.lineWidth = 1.8; ctx.strokeStyle = '#e07b00'; ctx.stroke();
   } else if (kind === 'aper') {
     ctx.beginPath(); ctx.moveTo(sx, sy - 6.2); ctx.lineTo(sx + 6.2, sy); ctx.lineTo(sx, sy + 6.2); ctx.lineTo(sx - 6.2, sy); ctx.closePath();
     ctx.fillStyle = '#ff6a33'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = rim; ctx.stroke();

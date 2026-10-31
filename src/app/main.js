@@ -14,6 +14,7 @@ import { initGlossary } from './glossary.js';
 import { View3D, KIND3D } from './view3d.js';
 import { SphereView } from './sphere3d.js';
 import { TorusView } from './torus3d.js';
+import { Dof3View } from './dof3view.js';
 import { t as tr, L, LANGS, setLang, detectLang, applyI18n } from './i18n.js';
 
 /* global WORKER_SRC */
@@ -32,6 +33,7 @@ const DEFAULTS = {
   lineW: 2, mcSize: 1, checked: [], introDone: false, tab: 'setup', moreOpen: false,
   kz: 1.6, liftRef: 'auto', drops: true, lang: '', zenHalf: false, hlFull: true, liftBase: 'flat', nIce: 1.31, cryPyr: false,
   iso: false, isoW: 'fresnel', isoLv: '', oriTorus: false,
+  range: false, fixed2: 75,                       // 三自由度: 第三个角放开到 [fixed, fixed2] (板晶: 摆幅 0–fixed2)
 };
 
 const S = (() => {
@@ -69,7 +71,10 @@ sphere.onHover = h => readout3d(h);
 const torus = new TorusView($('cv5'), $('cv5o'));     // 视图 1 的另一种样子: 取向平面卷成环面
 torus.onHover = h => { if (torusOn()) readoutOri(h ? h.x : null, h ? h.y : null); };
 torus.onPick = (x, y) => probeDeg(x, y);
-const torusOn = () => S.view === 1 && S.oriTorus;
+const torusOn = () => S.view === 1 && S.oriTorus && !d3On();
+const d3view = new Dof3View($('cv6'), $('cv6o'), 'space');     // 三自由度的取向空间 (视图 1) / 抬升 (视图 2)
+const d3On = () => !!(R && R.params.dof3);
+const d3ViewOn = () => d3On() && (S.view === 1 || S.view === 2);
 view3d.kz = S.kz;
 view3d.base = S.liftBase === 'sphere' ? 'sphere' : 'flat';
 view3d.onHover = h => readout3d(h);
@@ -218,19 +223,22 @@ function compute() {
   LP.zenHalf = zenHalf;                          // 主线程里也要知道取向平面的 ζ 范围 (画轴、回到全图)
   const cfg = { sun, n: nIce, partial: S.partial, apexUp: S.apexUpEff, apexLo: S.apexLoEff, aperture: { on: S.real, dist: d, h }, zenHalf };
   if (om + '|' + zenHalf !== lastAxes) { lastAxes = om + '|' + zenHalf; resetOriView(); }
-  const twoDof = S.mode === 0 || S.mode === 3;
+  const dof3 = rangeSpec();
+  const twoDof = !dof3 && (S.mode === 0 || S.mode === 3);
   const tasks = [], prs = [];
   paths.forEach((faces, i) => {
-    const base = { faces, cfg, modeIdx: S.mode, fixedDeg: S.fixed, idx: i };
-    const pr = { idx: i, name: faces.join('-'), faces, parts: [], doneParts: new Set(), oriSlot: -1, skySlot: tasks.length, base };
+    const base = { faces, cfg, modeIdx: S.mode, fixedDeg: S.fixed, idx: i, dof3 };
+    const pr = { idx: i, name: faces.join('-'), faces, parts: [], doneParts: new Set(), oriSlot: -1, d3Slot: -1, skySlot: tasks.length, base };
     tasks.push({ ...base, part: 'sky' }); pr.parts.push('sky');
-    if (twoDof) { pr.oriSlot = tasks.length; tasks.push({ ...base, part: 'ori' }); pr.parts.push('ori'); }
+    if (dof3) { pr.d3Slot = tasks.length; tasks.push({ ...base, part: 'dof3' }); pr.parts.push('dof3'); }
+    else if (twoDof) { pr.oriSlot = tasks.length; tasks.push({ ...base, part: 'ori' }); pr.parts.push('ori'); }
     prs.push(pr);
   });
   const job = pool.compute(tasks);
   Rnext = {
     job, t0: performance.now(),
-    params: { sun, n: nIce, partial: S.partial, mode: S.mode, fixed: S.fixed, om, fx, twoDof, real: S.real, h, realTag: realTag(S.real, d, h), zenHalf },
+    params: { sun, n: nIce, partial: S.partial, mode: S.mode, fixed: S.fixed, om, fx, twoDof, real: S.real, h, realTag: realTag(S.real, d, h), zenHalf,
+              dof3: dof3 ? { ...dof3, zenHalf } : null },
     paths: prs, oriLocal: null, clouds: new Map(), requestCloud,
   };
   S.probe = null; S.hoverEp = null; $('probeCard').hidden = true;
@@ -239,6 +247,16 @@ function compute() {
   crystal.set(d, h, paths[0]);
   renderCrumbs(paths);
   save();
+}
+
+/** 第三个角放开到区间时的取向族 {kind, lo, hi} (度); 没开或区间太窄时 null */
+function rangeSpec() {
+  if (!S.range || S.mode === 2) return null;
+  let r;
+  if (S.mode === 1) r = { kind: 'col', lo: 0, hi: Math.max(0, Math.min(90, S.fixed2)) };
+  else if (S.mode === 0) { const a = Math.max(0, Math.min(180, S.fixed)), b = Math.max(0, Math.min(180, S.fixed2)); r = { kind: 'col', lo: Math.min(a, b), hi: Math.max(a, b) }; }
+  else { const a = ((S.fixed % 360) + 360) % 360; let b = ((S.fixed2 % 360) + 360) % 360; if (b < a) b += 360; r = { kind: 'low', lo: a, hi: b }; }
+  return r.hi - r.lo >= 0.5 ? r : null;
 }
 
 function requestCloud(pr, fm) {
@@ -260,6 +278,19 @@ pool.onMessage = m => {
     case 'ori': Object.assign(pr, { ori: m.ori, oriMs: m.ms }); break;
     case 'eps': pr.eps = m.eps; pr.epsMs = m.ms; break;
     case 'lines': pr.lines = new Map(m.lines.map(l => [l.name, l])); pr.linesMs = m.ms; break;
+    case 'slice': {                                // 三自由度: 区间一端的 2DOF 取向平面 (取向空间的顶/底面)
+      pr.slices = pr.slices || [];
+      const sl = pr.slices[m.si] || (pr.slices[m.si] = { z: m.z, face: m.face });
+      if (m.sub === 'ori') sl.ori = m.ori;
+      else if (m.sub === 'eps') sl.eps = m.eps;
+      else if (m.sub === 'lines') sl.lines = new Map(m.lines.map(l => [l.name, l]));
+      if (m.ms) pr.sliceMs = (pr.sliceMs || 0) + m.ms;
+      break;
+    }
+    case 'dof3':                                   // 三自由度: 外轮廓 + 末端点
+      pr.d3 = m.d3; pr.eps = m.d3.eps; pr.d3Ms = m.ms;
+      pr.sky = m.d3.lines.map(l => ({ name: l.name, pts: l.pts }));
+      break;
     case 'done':
       pr.doneParts.add(m.part);
       pr.done = pr.parts.every(p => pr.doneParts.has(p));
@@ -269,8 +300,10 @@ pool.onMessage = m => {
   }
   if (T === Rnext) {
     if (m.type !== 'sky' && m.type !== 'ori' && !T.paths.every(p => p.done)) return;
+    const wasD3 = d3On();
     R = Rnext; Rnext = null;                    // 首个结果到达才换下旧图, 免得画面闪白
     if (S.tab === 'setup') $('tabBadge').classList.add('on');
+    if (wasD3 !== d3On()) syncView();           // 二/三自由度切换: 取向平面 ↔ 取向空间, 抬升换一种
   }
   if (T.paths.every(p => p.done)) {
     const wall = (performance.now() - T.t0) / 1000;
@@ -299,8 +332,11 @@ function renderCrumbs(paths) {
   const c = $('crumbs');
   c.textContent = '';
   const mi = modeInfo(S.mode);
+  const rs = rangeSpec();
+  const modeTxt = rs ? `${mi.name} ${rs.kind === 'low' ? 'roll' : 'ζ'} ${fmt(rs.lo)}–${fmt(rs.hi)}° · ${tr('crumb.dof3')}`
+    : mi.name + (S.mode === 1 ? '' : ` ${mi.sym} ${fmt(S.fixed)}°`);
   c.append(el('b', '', paths.map(p => p.join('-')).join(', ')), el('span', 'sep', '/'),
-           el('span', '', mi.name + (S.mode === 1 ? '' : ` ${mi.sym} ${fmt(S.fixed)}°`) + (S.mode === 3 && S.zenHalf ? ' · ζ 0–180°' : '')),
+           el('span', '', modeTxt + (S.mode === 3 && S.zenHalf ? ' · ζ 0–180°' : '')),
            el('span', 'sep', '/'), el('span', '', tr('crumb.sun', { v: fmt(S.sun) })));
 }
 const axName = s => s.split(' ')[0].replace('°', '');
@@ -340,7 +376,13 @@ function doRender(chrome) {
   if (S.view === 1) ensureMirrors();
   if (S.iso && (S.view === 0 || S.view === 3)) ensureIso();
   renderIsoNote();
-  if (S.view === 2) {
+  if (d3ViewOn()) {
+    ensureD3();
+    d3view.mode = S.view === 1 ? 'space' : 'lift';
+    const ax = d3Axes();
+    d3view.labels = { x: ax.x, y: ax.y, z: ax.z, sun: tr('d3v.sunLabel') };
+    d3view.setData(R, viewState(false));
+  } else if (S.view === 2) {
     ensureLifts();
     const V = viewState(false);
     view3d.setData(R, V);
@@ -354,7 +396,9 @@ function doRender(chrome) {
   // 画面上没有东西可看时说一句为什么
   const note = $('emptyNote');
   let msg = '';
-  if (S.view === 2 && R && R.paths.some(p => p.liftPending)) msg = tr('note.lift3dBusy');
+  if (d3ViewOn() && R.paths.some(p => !p.d3 || p[S.view === 1 ? 'space3' : 'lift3'] === undefined || p.d3Pending)) msg = tr('note.d3Busy');
+  else if (d3ViewOn()) msg = '';
+  else if (S.view === 2 && R && R.paths.some(p => p.liftPending)) msg = tr('note.lift3dBusy');
   else if (S.view === 2 && R && R.paths.every(p => p.lift)) {
     if (R.paths.every(p => !p.lift.n && !(p.lift.lines || []).some(l => l.seg.length)))
       msg = tr('note.liftNone');
@@ -364,6 +408,28 @@ function doRender(chrome) {
       msg = tr('note.skyNone');
   }
   note.hidden = !msg; note.textContent = msg; note.style.whiteSpace = 'pre-line';
+}
+
+// ============================================================ 三自由度: 取向空间 / 抬升的网格 (切到视图时才向 Worker 要)
+/** 三个族内坐标的名字 (柱晶: α, roll, ζ; Lowitz: α, ζ, roll) */
+function d3Axes() {
+  const P = R && R.params.dof3;
+  return P && P.kind === 'low' ? { x: 'α', y: 'ζ', z: 'roll' } : { x: 'α', y: 'roll', z: 'ζ' };
+}
+function ensureD3() {
+  const T = R, key = S.view === 1 ? 'space3' : 'lift3';
+  if (!T || !T.params.dof3) return;
+  for (const pr of T.paths) {
+    if (!pr.d3 || pr[key] !== undefined || pr[key + 'Pending']) continue;
+    pr[key + 'Pending'] = true;
+    liftBusy++; $('progress').classList.add('on');
+    pool.request(pr.d3Slot, { type: key }).then(d => {
+      pr[key + 'Pending'] = false;
+      pr[key] = d || null;
+      if (--liftBusy === 0 && !Rnext) $('progress').classList.remove('on');
+      if (T === R) requestRender();
+    });
+  }
 }
 
 // ============================================================ 左右镜像: 取向平面里补上镜像光路 (勾选时才算)
@@ -497,7 +563,16 @@ function readout3d(h) {
 }
 
 // ============================================================ 右栏: 解读
-const KIND_ORDER = { end: 0, turn: 1, cusp: 2, cross: 3, aper: 4 };
+const KIND_ORDER = { end: 0, turn: 1, cusp: 2, cross: 3, aper: 4, tan: 5, corner: 6 };
+/** 三自由度末端点: 哪几段边在这里相接 */
+function d3EpLabel(r, pr) {
+  const P = R ? R.params : {};
+  const nm = q => (q.src === 'slice' ? skyName(`端面|${q.z}|${q.fam}`, pr.faces, P.partial)
+    : q.src === 'arc' ? tr('d3.arc', { d: q.d.toFixed(2), src: tr('d3.src.' + q.from) }) : tr('sky.zenEdge'));
+  const parts = (r.pieces || []).map(nm);
+  if (r.label && !parts.length) return epLabel(r.label, P.partial);
+  return [...new Set(parts)].join(' ∩ ') || '—';
+}
 
 function renderRead() {
   renderCurves();
@@ -552,6 +627,27 @@ function renderCurves() {
       });
       if (S.sym && S.view === 1 && P.twoDof) box.append(el('div', 'mirror-note', mirrorNote(pr)));
       if (P.zenHalf && k === T.paths.length - 1) box.append(el('div', 'info-note', tr('curves.zenHalf')));
+    } else if (P.dof3 && pr.sky) {
+      // 三自由度: 外轮廓由哪几种线组成 (同名的合成一行)
+      const seen = new Map();
+      pr.sky.forEach((s, fi) => {
+        if (!seen.has(s.name)) seen.set(s.name, { fi, len: 0 });
+        const a = s.pts; let L = 0;
+        for (let i = 3; i < a.length; i += 3) L += Math.acos(Math.max(-1, Math.min(1, a[i] * a[i - 3] + a[i + 1] * a[i - 2] + a[i + 2] * a[i - 1])));
+        seen.get(s.name).len += L * 180 / Math.PI;
+      });
+      for (const [name, { fi, len }] of seen) {
+        n++;
+        const row = el('div', 'curve static');
+        const sw = el('span', 'swt'); sw.style.background = css(multi ? th.pathcol[k % 6] : th.palette[skyColorIndex(pr, name, fi) % th.palette.length]);
+        const t = el('div', 't');
+        t.append(el('b', '', skyName(name, pr.faces, P.partial)), el('code', '', tr('d3.len', { v: len.toFixed(len < 10 ? 1 : 0) })));
+        const q = el('button', 'qmark', '?'); q.dataset.term = name.startsWith('圆弧|') ? 'arc3' : 'dof3'; t.append(q);
+        row.append(sw, t, el('span'), el('div', 'd', tr(name.startsWith('圆弧|') ? 'd3.arcDesc' : 'd3.sliceDesc')));
+        box.append(row);
+      }
+      if (pr.d3 && k === T.paths.length - 1) box.append(el('div', 'info-note', tr('d3.curvesNote', { c: pr.d3.circles.map(c => c.d.toFixed(2) + '°').join(', ') || '—' })));
+      if (!pr.d3 && !pr.done) box.append(el('div', 'empty', tr('curves.pending', { name: pr.name })));
     } else if (pr.sky) {
       pr.sky.forEach((s, fi) => {
         n++;
@@ -576,7 +672,8 @@ function renderEndpoints() {
   const T = R;
   $('epAside').textContent = '';
   if (!T) return;
-  if (!T.params.twoDof) { sum.append(el('div', 'ep-note', tr('eps.only2dof'))); return; }
+  if (!T.params.twoDof && !T.params.dof3) { sum.append(el('div', 'ep-note', tr('eps.only2dof'))); return; }
+  const d3 = !!T.params.dof3;
   const rows = [];
   let hidden = 0, pending = false;
   T.paths.forEach((pr, k) => {
@@ -586,6 +683,7 @@ function renderEndpoints() {
   for (const K of EP_KINDS) {
     const cnt = rows.filter(x => x.r.kind === K.kind).length;
     if (cnt === 0 && ((K.kind === 'cross' && !T.params.partial) || (K.kind === 'aper' && !T.params.real))) continue;
+    if (cnt === 0 && ((K.kind === 'tan' || K.kind === 'corner') !== d3)) continue;
     const b = el('button', 'epk' + (cnt ? '' : ' zero'));
     b.dataset.term = K.term;
     b.append(el('span', 'gl gl-' + K.kind, K.glyph), el('span', 'n', String(cnt)), el('span', 'nm', tr(K.key)));
@@ -603,18 +701,21 @@ function renderEndpoints() {
   rows.sort((a, b) => (KIND_ORDER[a.r.kind] - KIND_ORDER[b.r.kind]) || (a.r.az - b.r.az));
   const ax = axesMeta(T.params.om);
   const hd = el('div', 'eph');
-  hd.append(el('span'), el('span', '', axName(ax.xl)), el('span', '', axName(ax.yl)), el('span', '', tr('eps.az')), el('span', '', tr('eps.el')));
+  // 三自由度: 第一列 = 第三个角 (原像所在的那一层), 第二列 = 偏向角
+  if (d3) hd.append(el('span'), el('span', '', d3Axes().z), el('span', '', 'δ'), el('span', '', tr('eps.az')), el('span', '', tr('eps.el')));
+  else hd.append(el('span'), el('span', '', axName(ax.xl)), el('span', '', axName(ax.yl)), el('span', '', tr('eps.az')), el('span', '', tr('eps.el')));
   tbl.append(hd);
   const multi = T.paths.length > 1;
   const f3 = v => (Math.abs(v) < 5e-4 ? 0 : v).toFixed(2);
   for (const x of rows) {
     const r = x.r, K = EP_KINDS.find(k => k.kind === r.kind);
     const b = el('button', 'epr');
-    b.append(el('span', 'gl gl-' + r.kind, K.glyph), el('span', 'v', r.sc.toFixed(1)), el('span', 'v', r.sw.toFixed(1)),
+    const c1 = d3 ? (r.box && r.box.length ? [...new Set(r.box.map(q => q[2].toFixed(1)))].join('/') : '–') : r.sc.toFixed(1), c2 = d3 ? r.d.toFixed(2) : r.sw.toFixed(1);
+    b.append(el('span', 'gl gl-' + r.kind, K.glyph), el('span', 'v', c1), el('span', 'v', c2),
              el('span', 'v', f3(r.az)), el('span', 'v', f3(r.el)));
     const lbl = el('span', 'lbl');
     if (multi) lbl.append(el('span', 'pn', x.pr.name + '  '));
-    lbl.append(document.createTextNode(tr(K.key) + ': ' + epLabel(r.label, T.params.partial)));
+    lbl.append(document.createTextNode(tr(K.key) + ': ' + (d3 ? d3EpLabel(r, x.pr) : epLabel(r.label, T.params.partial))));
     b.append(lbl);
     b.title = `${tr(K.key)} — ${term(K.term).short}`;
     b.addEventListener('mouseenter', () => { S.hoverEp = { k: x.k, i: x.i }; requestRender(); });
@@ -627,6 +728,7 @@ function renderEndpoints() {
 }
 
 function focusEndpoint(r, k, i) {
+  if (d3ViewOn()) return;
   if (S.view === 2) { view3d.focusEp(k, i); return; }
   if (S.view === 3) { sphere.focusDir(r.D); return; }
   if (S.view === 0) {
@@ -658,6 +760,10 @@ function renderStats() {
     const nSky = (pr.sky || []).reduce((s, x) => s + x.pts.length / 3, 0);
     add(tr('stats.pts'), pr.sky ? `${nSky} / ${pr.mc.length / 3}` : '…');
     add(tr('stats.trace'), ms(pr.traceMs));
+    if (pr.parts.includes('dof3')) {
+      add(tr('stats.slices'), ms(pr.sliceMs));
+      add(tr('stats.d3'), ms(pr.d3Ms));
+    }
     if (pr.parts.includes('ori')) {
       add(tr('stats.ori'), ms(pr.oriMs));
       add(tr('stats.eps'), ms(pr.epsMs));
@@ -788,18 +894,25 @@ function syncCam() {
 }
 
 function syncView() {
-  const v3 = S.view === 2, sph = S.view === 3;
+  const d3v = d3ViewOn(), v3 = S.view === 2 && !d3v, sph = S.view === 3;
   document.querySelectorAll('#viewSeg button').forEach(b => b.classList.toggle('on', +b.dataset.view === S.view));
   const tor = torusOn();
-  $('cv').hidden = v3 || sph || tor; $('cv3').hidden = !v3; $('cv3o').hidden = !v3; $('cv4').hidden = !sph; $('cv4o').hidden = !sph;
+  $('cv').hidden = S.view === 2 || sph || tor || d3v; $('cv3').hidden = !v3; $('cv3o').hidden = !v3; $('cv4').hidden = !sph; $('cv4o').hidden = !sph;
   $('cv5').hidden = !tor; $('cv5o').hidden = !tor;
+  $('cv6').hidden = !d3v; $('cv6o').hidden = !d3v;
+  $('camD3').hidden = !d3v;
+  $('d3Q').dataset.term = S.view === 1 ? 'space3' : 'lift3d3';
+  document.querySelectorAll('#viewSeg button').forEach(b => {          // 三自由度时 "取向平面" 变成 "取向空间"
+    if (+b.dataset.view === 1) b.textContent = tr(d3On() ? 'view.space' : 'view.ori');
+  });
   $('camSky').hidden = S.view !== 0;
-  $('camOri').hidden = S.view !== 1;
+  $('camOri').hidden = S.view !== 1 || d3v;
   document.querySelectorAll('#oriSeg button').forEach(b => b.classList.toggle('on', (b.dataset.torus === '1') === S.oriTorus));
   $('oriTorusCam').hidden = !S.oriTorus; $('oriFlatCam').hidden = S.oriTorus; $('oriFlatZoom').hidden = S.oriTorus;
   $('cam3d').hidden = !v3;
+  d3view.setActive(d3v);
   $('camSph').hidden = !sph;
-  $('viewQ').dataset.term = ['sky', 'oriplane', 'lift3d', 'sphere'][S.view];
+  $('viewQ').dataset.term = d3v ? (S.view === 1 ? 'space3' : 'lift3d3') : ['sky', 'oriplane', 'lift3d', 'sphere'][S.view];
   $('app').classList.toggle('view-ori', S.view === 1);
   $('app').classList.toggle('view-3d', v3);
   document.querySelectorAll('[data-l2]').forEach(e => { e.textContent = tr(v3 ? e.dataset.l3 : e.dataset.l2); });
@@ -831,13 +944,30 @@ function syncMode() {
     b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));
   });
   $('zenNote').textContent = tr(S.zenHalf ? 'zen.noteHalf' : 'zen.noteFull');
+  // 第三个角: 固定 / 一段范围 (柱晶 ζ、板晶摆幅、Lowitz roll; Parry 没有)
+  const canRange = S.mode !== 2;
+  $('rangeRow').hidden = !canRange;
+  document.querySelectorAll('#rangeSeg button').forEach(b => {
+    const on = (b.dataset.range === '1') === !!S.range;
+    b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));
+  });
+  const rOn = canRange && S.range;
+  $('range2Row').hidden = !rOn; $('rangeNote').hidden = !rOn;
+  if (rOn) {
+    const lim = S.mode === 1 ? [0, 90] : S.mode === 0 ? [0, 180] : [0, 360];
+    $('lbFixed2').textContent = tr(S.mode === 1 ? 'range.tilt' : 'range.to', { sym: S.mode === 3 ? 'roll' : 'ζ' });
+    $('slFixed2').min = lim[0]; $('slFixed2').max = lim[1]; $('slFixed2').value = S.fixed2;
+    if (document.activeElement !== $('inFixed2')) $('inFixed2').value = S.fixed2;
+    const rs = rangeSpec();
+    $('rangeNote').textContent = rs ? tr('range.note', { sym: rs.kind === 'low' ? 'roll' : 'ζ', lo: fmt(rs.lo), hi: fmt(rs.hi) }) : tr('range.narrow');
+  }
 }
 
 // ============================================================ 读数 (鼠标处)
 function updateReadout(e) {
   const ro = $('readout');
   ro.textContent = '';
-  const hint = tr(torusOn() ? 'hint.torus' : ['hint.sky', 'hint.ori', 'hint.3d', 'hint.sph'][S.view]);
+  const hint = tr(d3ViewOn() ? 'hint.d3' : torusOn() ? 'hint.torus' : ['hint.sky', 'hint.ori', 'hint.3d', 'hint.sph'][S.view]);
   if (!e) { ro.append(el('span', '', hint)); return; }
   const r = $('cv').getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
   if (S.view === 0) {
@@ -979,7 +1109,7 @@ function applyPreset(p) {
 // ============================================================ 导出
 function exportPng() {
   const now = new Date(), p2 = n => String(n).padStart(2, '0');
-  const name = `halo_${(R ? R.paths.map(p => p.name).join('_') : 'empty')}_${(torusOn() ? 'torus' : ['sky', 'orient', '3d', 'sphere'][S.view])}_${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}.png`;
+  const name = `halo_${(R ? R.paths.map(p => p.name).join('_') : 'empty')}_${(d3ViewOn() ? (S.view === 1 ? 'space' : 'lift3') : torusOn() ? 'torus' : ['sky', 'orient', '3d', 'sphere'][S.view])}_${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}.png`;
   const done = blob => {
     if (!blob) return;
     const a = document.createElement('a');
@@ -987,6 +1117,7 @@ function exportPng() {
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   };
+  if (d3ViewOn()) { d3view.snapshot(done); return; }
   if (S.view === 2) { view3d.snapshot(done); return; }
   if (S.view === 3) { sphere.snapshot(done); return; }
   if (torusOn()) { torus.snapshot(done); return; }
@@ -1050,6 +1181,19 @@ function initControls() {
   $('slFixed').addEventListener('input', () => { $('inFixed').value = $('slFixed').value; });
   $('slFixed').addEventListener('change', () => { S.fixed = +$('slFixed').value; compute(); });
   bindNum('inFixed', v => { S.fixed = v; $('slFixed').value = v; compute(); });
+  document.querySelectorAll('#rangeSeg button').forEach(b => b.addEventListener('click', () => {
+    const on = b.dataset.range === '1';
+    if (on === !!S.range) return;
+    S.range = on;
+    // 区间另一端的默认值: 柱晶往下 15°, 板晶摆幅 8°, Lowitz roll 往上 20°
+    if (on && (S.mode === 1 ? !(S.fixed2 > 0 && S.fixed2 <= 90) : Math.abs(S.fixed2 - S.fixed) < 0.5 || (S.mode === 0 && (S.fixed2 < 0 || S.fixed2 > 180))))
+      S.fixed2 = S.mode === 1 ? 8 : S.mode === 0 ? Math.max(0, S.fixed - 15) : S.fixed + 20;
+    syncMode(); compute();
+  }));
+  $('slFixed2').addEventListener('input', () => { $('inFixed2').value = $('slFixed2').value; });
+  $('slFixed2').addEventListener('change', () => { S.fixed2 = +$('slFixed2').value; syncMode(); compute(); });
+  bindNum('inFixed2', v => { S.fixed2 = v; $('slFixed2').value = v; syncMode(); compute(); });
+  document.querySelectorAll('[data-d3view]').forEach(b => b.addEventListener('click', () => d3view.goView(b.dataset.d3view)));
 
   // ---- ③ 太阳 ----
   $('inSun').value = S.sun; $('slSun').value = S.sun;

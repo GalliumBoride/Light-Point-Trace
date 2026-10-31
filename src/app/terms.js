@@ -9,10 +9,10 @@ export const GROUPS = ['basic', 'sky', 'ori', 'fence', 'ep', 'other'];
 export const TERM_GROUP = {
   lightpoint: 'basic', path: 'basic', faces: 'basic', orientation: 'basic', dof: 'basic',
   sky: 'sky', sphere: 'sky', mc: 'sky', projection: 'sky',
-  oriplane: 'ori', refine: 'ori', lift3d: 'ori',
+  oriplane: 'ori', refine: 'ori', lift3d: 'ori', dof3: 'ori', space3: 'ori', lift3d3: 'ori', arc3: 'fence',
   valid: 'fence', fence: 'fence', entry: 'fence', seam: 'fence', tir: 'fence', exit: 'fence', aperture: 'fence',
   side: 'fence', formal: 'fence', caustic: 'fence', reach: 'fence',
-  endpoints: 'ep', ep_end: 'ep', ep_turn: 'ep', ep_cusp: 'ep', ep_cross: 'ep', ep_aper: 'ep', ep_hidden: 'ep',
+  endpoints: 'ep', ep_end: 'ep', ep_turn: 'ep', ep_cusp: 'ep', ep_cross: 'ep', ep_aper: 'ep', ep_tan: 'ep', ep_corner: 'ep', ep_hidden: 'ep',
   partial: 'other', realcrystal: 'other', apex: 'other', chain: 'other', n: 'other',
 };
 
@@ -40,6 +40,11 @@ function sub(n) { return String(n).split('').map(c => SUBS[+c]).join(''); }
 /** 天空图族名 (Trace2D 的键) → 友好名 */
 export function skyName(key, faces, partial) {
   if (key === 'Parry轨迹(1DOF)' || key === '固定ζ极点退化1DOF') return t('sky.dof1');
+  if (key.startsWith('端面|')) {                       // 三自由度外轮廓: 第三个角取区间一端时的 2DOF 曲线
+    const [, z, fam] = key.split('|'), fm = famFromName(fam);
+    return t('d3.slice', { z: +(+z).toFixed(1), name: fm ? famInfo(fm, faces, partial).title : fam });
+  }
+  if (key.startsWith('圆弧|')) { const [, d, src] = key.split('|'); return t('d3.arc', { d, src: t('d3.src.' + src) }); }
   if (key === 'ζ边界') return t('sky.zenEdge');
   const m = key.match(/^(\S+)-帽 (.*)$/);
   const base = m ? m[2] : key;
@@ -96,6 +101,8 @@ export const EP_KINDS = [
   { kind: 'cusp', glyph: '✱', key: 'epk.cusp', term: 'ep_cusp' },
   { kind: 'cross', glyph: '×', key: 'epk.cross', term: 'ep_cross' },
   { kind: 'aper', glyph: '◆', key: 'epk.aper', term: 'ep_aper' },
+  { kind: 'tan', glyph: '◉', key: 'epk.tan', term: 'ep_tan' },          // 三自由度: 圆弧接上端面曲线
+  { kind: 'corner', glyph: '◇', key: 'epk.corner', term: 'ep_corner' }, // 三自由度: 两段边相交
 ];
 
 /** 取向平面的轴名 (引擎里 axesMeta 的中文标签 → 当前语言) */
