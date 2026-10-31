@@ -5,8 +5,8 @@
 export default {
   ui: {
     'app.title': 'Light-Point Halo Tracer',
-    'app.desc': 'Sky arcs, boundaries (fences), caustics and endpoints of ice-halo light paths — closed-form light-point engine, runs offline from a single file.',
-    'app.tagline': 'Halo arcs · fences · caustics · endpoints',
+    'app.desc': 'Sky arcs, boundaries, caustics and endpoints of ice-halo light paths — closed-form light-point engine, runs offline from a single file.',
+    'app.tagline': 'Halo arcs · boundaries · caustics · endpoints',
     'lang.aria': 'Interface language',
 
     'status.ready': 'Ready',
@@ -127,7 +127,7 @@ export default {
     'layers.mc2': 'MC point-cloud fill',
     'layers.mc3': 'Ground shadow (landing density)',
     'layers.lines2': 'Join points in order',
-    'layers.lines3': 'Fences & caustic lines',
+    'layers.lines3': 'Boundaries & caustic lines',
     'layers.sym': 'Mirror fill-in (left/right)',
     'layers.drops': 'Vertical lines from crease to ground',
     'layers.lineW': 'Line width',
@@ -232,7 +232,7 @@ export default {
     'mirror.self': 'Mirror fill-in: {name} mirrors onto itself — the orientation plane already covers both the left and right halves of the sky, so nothing needs filling in.',
     'mirror.none': 'Mirror fill-in: the mirrored half comes from a different set of orientations (not on this orientation plane), so it can’t be drawn here.',
     'mirror.dup': 'Mirror fill-in: the mirrored half comes from light path {name}, which is already in your input.',
-    'mirror.ok': 'Mirror fill-in: the mirrored half in the sky comes from light path {name} — it is the blue point cloud on the orientation plane; its fences and endpoints are drawn as usual.',
+    'mirror.ok': 'Mirror fill-in: the mirrored half in the sky comes from light path {name} — it is the blue point cloud on the orientation plane; its boundaries and endpoints are drawn as usual.',
 
     'probe.title': 'Light path at this orientation',
     'probe.clear': 'Clear marker',
@@ -247,7 +247,7 @@ export default {
     'probe.out': 'Can exit through face {f}',
     'probe.trapped': 'Trapped by total internal reflection at exit face {f}; can’t get out',
     'probe.apOk': 'At real size, some entry points make it all the way through',
-    'probe.apBad': 'At real size, no entry point makes it through (blocked by the aperture fence)',
+    'probe.apBad': 'At real size, no entry point makes it through (blocked by the aperture boundary)',
     'probe.margin': 'margin {v}',
     'probe.ok': 'Light path works → exit direction: azimuth {az}°, elevation {el}°',
     'probe.bad': 'The light path fails at this orientation (✗ marks the step where it gets stuck).',
@@ -255,12 +255,12 @@ export default {
     'intro.title': 'How to read this plot',
     'intro.close': 'Got it',
     'intro.mc': '<b>Gray point cloud</b>: every direction the light goes when the light path works — in other words, where the arc can appear.',
-    'intro.lines': '<b>Colored lines</b>: the region’s boundaries (fences) and its brightest edge (caustic). Colors match the list below.',
+    'intro.lines': '<b>Colored lines</b>: the region’s boundaries and its brightest edge (caustic). Colors match the list below.',
     'intro.eps': '<b>Endpoints</b>: where the arc ends ●, where it folds back ▲, and where it comes to a point ✱.',
     'intro.ori': 'Switch to the <b>orientation plane</b> to see the same thing in terms of crystal orientations; click any point to see which step the light path gets stuck on.',
 
     'curves.title': 'Lines on the plot',
-    'curves.q': 'Fence',
+    'curves.q': 'Boundary',
     'curves.foot': 'Check a line to draw it, mark its roots and fill its satisfied side with faint dots of the same color. The switch above chooses between the whole curve and only the part where the light path works.',
     'curves.full': 'Highlight also draws the extension where the path fails (faint)',
     'curves.empty': 'After computing, every line on the plot is listed here, with what it means.',
@@ -273,7 +273,7 @@ export default {
     'curves.dof1': '1DOF: the crystal orientation has only one random angle; this line is the track the light traces across the sky.',
     'curves.pending': 'Computing {name} …',
     'curves.count': '{n} lines',
-    'curves.zenHalf': 'ζ only turns halfway: the region is cut off at ζ = 0° and 180°, where the crystal lies flat. In the sky that cut is the plate-crystal arc (the dotted line in the sky view); where it meets a fence or the caustic is listed as an endpoint.',
+    'curves.zenHalf': 'ζ only turns halfway: the region is cut off at ζ = 0° and 180°, where the crystal lies flat. In the sky that cut is the plate-crystal arc (the dotted line in the sky view); where it meets a boundary or the caustic is listed as an endpoint.',
 
     'eps.title': 'Endpoints',
     'eps.q': 'Endpoints',
@@ -306,7 +306,7 @@ export default {
     'fam.tir': 'TIR critical · face {f}',
     'fam.exit': 'Exit critical',
     'fam.caustic': 'Caustic',
-    'fam.aperture': 'Aperture fence',
+    'fam.aperture': 'Aperture boundary',
     'fam.apertureTag': 'real crystal',
     'sky.dof1': 'Arc (1DOF track)',
     'sky.cap': '{name} (cap)',
@@ -321,7 +321,7 @@ export default {
     'ep.blue': 'Blue edge (face {f})',
     'ep.tir': 'TIR critical (face {f})',
     'ep.cuspSky': 'Caustic’s sky image forms a cusp',
-    'ep.aperture': 'Aperture fence',
+    'ep.aperture': 'Aperture boundary',
     'ep.zenEdge': 'ζ cutoff',
     'ep.and': ' × ',
     'ep.sep': '; ',
@@ -357,7 +357,7 @@ export default {
 
   lenses: ['Rectilinear (normal camera)', 'Fisheye · equal-area', 'Fisheye · equidistant', 'Fisheye · stereographic', 'Fisheye · orthographic', 'Equirectangular (whole sky unrolled)'],
 
-  groups: { basic: 'Basics', sky: 'Sky view', ori: 'Orientation plane', fence: 'Fences & caustics', ep: 'Endpoints', other: 'Other' },
+  groups: { basic: 'Basics', sky: 'Sky view', ori: 'Orientation plane', fence: 'Boundaries & caustics', ep: 'Endpoints', other: 'Other' },
 
   // Glossary: first what it is and what it does (plain language), symbols last as a footnote. short = hover tip, body = main text, tech = symbol footnote.
   terms: {
@@ -406,7 +406,7 @@ export default {
       short: 'How many angles are random. 1 → the arc is a line; 2 → each light path covers a patch of sky, and only the patch’s edges are lines.',
       body: [
         'Plate and Parry are 1DOF: the app directly draws the track the light traces as the orientation changes.',
-        'Column and Lowitz are 2DOF: each light path covers a patch of sky, and the app solves for the patch’s boundaries (fences and caustics) and where those boundaries end. The orientation plane, endpoints and curve inspection exist only for 2DOF.',
+        'Column and Lowitz are 2DOF: each light path covers a patch of sky, and the app solves for the patch’s boundaries and caustics, and where they end. The orientation plane, endpoints and curve inspection exist only for 2DOF.',
       ],
     },
     sky: {
@@ -447,7 +447,7 @@ export default {
       body: [
         'Both axes wrap around (360° is 0°), like the surface of a donut, so you can keep dragging forever.',
         'Switch to “Torus” (bottom left) to actually roll it into a donut: once around the big ring is the horizontal axis (α), once around the tube is the vertical axis (roll or ζ), and lines that break at the four edges of the flat map join up into whole curves. For Lowitz with ζ set to “180° half turn” only half the tube (the upper half) is drawn.',
-        'Gray dots = orientations where the light path works; colored lines = the fences and caustics. The arc in the sky is simply the working patch of this map “carried” up to the sky: a line on the map becomes a line in the sky.',
+        'Gray dots = orientations where the light path works; colored lines = the boundaries and caustics. The arc in the sky is simply the working patch of this map “carried” up to the sky: a line on the map becomes a line in the sky.',
         'Click any point on the map and the right panel tells you, step by step, where the light path gets stuck at that orientation.',
         'With “Mirror fill-in” on, the orientations that produce the mirrored half of the sky are drawn on this map too (blue point cloud), and the right panel says which light path they come from.',
       ],
@@ -473,7 +473,7 @@ export default {
       name: 'Equal-intensity lines',
       short: 'Lines joining sky points of equal brightness, like contour lines on a map. The number on each line is the intensity: the share of crystals landing per steradian.',
       body: [
-        'The question: where an arc is bright and how bright, not just where it is. Fences tell you where the arc stops (intensity 0) and caustics where it is brightest (intensity infinite); equal-intensity lines fill in between.',
+        'The question: where an arc is bright and how bright, not just where it is. Boundaries tell you where the arc stops (intensity 0) and caustics where it is brightest (intensity infinite); equal-intensity lines fill in between.',
         'How it is computed: the intensity at a sky point is the sum over every crystal orientation that sends light there, each contributing w/|J|. J is the light-point Jacobian (how much the orientation area is magnified on the sky) and w is that orientation’s weight. No random crystals and no pixel counting: the formula is evaluated directly, and each line is traced point by point along “intensity = this value”.',
         'Two weights: “Projected area × Fresnel” = the entry face’s area facing the sun times the transmission/reflection at entry, internal reflections and exit, all computed from the light-point normal momenta; “Geometric density only” = every orientation counts 1, the same thing as the density of the grey point cloud.',
         'A sky point is often reached by several orientations (one on each side of a caustic, sometimes more), and the intensity is their sum. For paths like Column 3-5 the two orientations are exactly “entry and exit angles swapped”, so the sum has a closed form; in other cases (Lowitz 3-5, pyramids …) the other orientation is solved from the light-point equations and followed along the line.',
@@ -495,13 +495,13 @@ export default {
       tech: 'g₀ = A·u₀;  q_k = P·u_k;  q_E = P·u_E;  √K = √(n²−1) ≈ 0.846',
     },
     fence: {
-      name: 'Fence',
-      short: 'The line where one validity condition sits exactly at its critical value. The region where the light path works is enclosed by these lines, as if fenced in.',
+      name: 'Boundary',
+      short: 'The line where one validity condition sits exactly at its critical value. The region where the light path works is enclosed by these lines.',
       body: [
-        'Each fence belongs to one condition: on one side it holds (the satisfied side), on the other it doesn’t. The patch where all conditions hold is where the arc lives.',
-        'In the light-point method every fence is the same kind of event: one segment of the light-point chain just grazes (is tangent to) the inner sphere.',
-        'A fence’s shape depends only on the light path itself, not on the sun elevation or the orientation mode; those only decide which part of it shows up in the sky.',
-        'Five kinds of fence: entry grazing, seam, TIR critical (blue edge), exit critical, and — for real crystals only — the aperture fence.',
+        'Each boundary belongs to one condition: on one side it holds (the satisfied side), on the other it doesn’t. The patch where all conditions hold is where the arc lives.',
+        'In the light-point method every boundary is the same kind of event: one segment of the light-point chain just grazes (is tangent to) the inner sphere.',
+        'A boundary’s shape depends only on the light path itself, not on the sun elevation or the orientation mode; those only decide which part of it shows up in the sky.',
+        'Five kinds of boundary: entry grazing, seam, TIR critical (blue edge), exit critical, and — for real crystals only — the aperture boundary.',
       ],
       tech: 'Unified form: ℓ·w + c·√(X² + K) = k  (L-type level lines, w = sun direction in the crystal frame)',
     },
@@ -530,25 +530,25 @@ export default {
       tech: 'q_E = −√K',
     },
     aperture: {
-      name: 'Aperture fence (real crystal)',
+      name: 'Aperture boundary (real crystal)',
       short: 'In a finite crystal, the set of entry points that can make it through the whole light path shrinks to nothing: the outermost ray just grazes one of the crystal’s edges. Appears only with “Real crystal” on.',
       body: [
-        'Giving the crystal a size doesn’t change the arc’s shape at all (the exit direction depends only on orientation); it only changes which segments light can still get through. Segments it can’t get through are cut away, and the cut points are the aperture fence.',
+        'Giving the crystal a size doesn’t change the arc’s shape at all (the exit direction depends only on orientation); it only changes which segments light can still get through. Segments it can’t get through are cut away, and the cut points are the aperture boundary.',
       ],
     },
     side: {
       name: 'Satisfied side',
-      short: 'The side of a fence where its condition holds. Check a fence in the right panel: the sky view fills the satisfied side with faint dots of the same color, and the orientation plane shades the two sides differently.',
+      short: 'The side of a boundary where its condition holds. Check a boundary in the right panel: the sky view fills the satisfied side with faint dots of the same color, and the orientation plane shades the two sides differently.',
     },
     formal: {
       name: 'Formal extension (faint line)',
-      short: 'Mathematically, a fence continues into places where the light path fails. When checked, that part is drawn faint; only the solid part is an arc that really exists in the sky.',
+      short: 'Mathematically, a boundary continues into places where the light path fails. When checked, that part is drawn faint; only the solid part is an arc that really exists in the sky.',
     },
     caustic: {
       name: 'Caustic',
       short: 'Many different orientations send light in almost the same direction, so light piles up there and forms the arc’s brightest edge. Like sunlight in a cup making a bright line on the bottom.',
       body: [
-        'A caustic has no “inside” or “outside”, so it is not a fence and doesn’t enclose a region. It is usually the bright rim you notice first in photos.',
+        'A caustic has no “inside” or “outside”, so it is not a boundary and doesn’t enclose a region. It is usually the bright rim you notice first in photos.',
         'Some light paths (e.g. 3-5-6-8 in columns) squash the whole patch of orientations into a single line in the sky; the Jacobian is 0 everywhere, there is no caustic, and the app doesn’t draw one.',
       ],
       tech: 'J = (∂_u D × ∂_v D)·D = 0  (fold line of the map orientation → exit direction)',
@@ -568,7 +568,7 @@ export default {
     },
     ep_end: {
       name: '● End',
-      short: 'A curve runs into a fence, beyond which the light path fails. The arc truly ends here. Two boundaries share this point; it is a corner of the valid region.',
+      short: 'A curve runs into a boundary, beyond which the light path fails. The arc truly ends here. The two lines share this point; it is a corner of the valid region.',
     },
     ep_turn: {
       name: '▲ Turn',
@@ -584,7 +584,7 @@ export default {
     },
     ep_aper: {
       name: '◆ Aperture end',
-      short: 'Where a real crystal’s aperture fence cuts the arc off. It replaces the ideal endpoint that was cut away.',
+      short: 'Where a real crystal’s aperture boundary cuts the arc off. It replaces the ideal endpoint that was cut away.',
     },
     ep_hidden: {
       name: 'Ideal endpoint clipped',

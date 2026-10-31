@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>光点法边界追踪 · Light-Point Halo Tracer</title>
-<meta name="description" id="metaDesc" content="冰晕光路的天空弧、边界 (篱笆)、焦散与末端点 — 光点法闭式引擎, 单文件离线运行.">
+<meta name="description" id="metaDesc" content="冰晕光路的天空弧、边界、焦散与末端点 — 光点法闭式引擎, 单文件离线运行.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='12.5' fill='none' stroke='%23d9961c' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='4.5' fill='%23d9961c'/%3E%3C/svg%3E">
 <style>/*__CSS__*/</style>
 </head>
@@ -21,7 +21,7 @@
       </svg>
       <div class="brand-text">
         <strong data-i18n="app.title">光点法边界追踪</strong>
-        <span data-i18n="app.tagline">冰晕弧 · 篱笆 · 焦散 · 末端点</span>
+        <span data-i18n="app.tagline">冰晕弧 · 边界 · 焦散 · 末端点</span>
       </div>
     </div>
     <div class="crumbs" id="crumbs" aria-live="polite"></div>
@@ -328,14 +328,14 @@
       <header><h3 data-i18n="intro.title">怎么读这张图</h3><button class="link" id="btnIntroClose" data-i18n="intro.close">知道了</button></header>
       <ul>
         <li><span class="k k-mc"></span><span data-i18n="intro.mc"><b>灰色点云</b>: 光路成立时光射向的所有方向, 也就是弧可能出现的范围.</span></li>
-        <li><span class="k k-line"></span><span data-i18n="intro.lines"><b>彩色线</b>: 区域的边界 (篱笆) 和最亮的边 (焦散). 颜色和下面的列表一一对应.</span></li>
+        <li><span class="k k-line"></span><span data-i18n="intro.lines"><b>彩色线</b>: 区域的边界和最亮的边 (焦散). 颜色和下面的列表一一对应.</span></li>
         <li><span class="k k-ep">●</span><span data-i18n="intro.eps"><b>末端点</b>: 弧在哪里结束 ●、在哪里折回 ▲、在哪里打尖 ✱.</span></li>
         <li><span class="k k-ori"></span><span data-i18n="intro.ori">切到<b>取向平面</b>看同一件事在"晶体姿态"上的样子, 单击任一点看光路卡在哪一步.</span></li>
       </ul>
     </section>
 
     <section class="card">
-      <header><h3 data-i18n="curves.title">图上的线</h3><button class="qmark" data-term="fence" data-i18n-aria="curves.q" aria-label="篱笆">?</button><span class="aside" id="curveAside"></span></header>
+      <header><h3 data-i18n="curves.title">图上的线</h3><button class="qmark" data-term="fence" data-i18n-aria="curves.q" aria-label="边界">?</button><span class="aside" id="curveAside"></span></header>
       <div class="curves" id="curves"></div>
       <label class="switch hl-full" id="hlFullRow"><input type="checkbox" id="ckHlFull"><span class="sw"></span><span data-i18n="curves.full">高亮时也画光路不成立处的延伸 (淡色)</span></label>
       <p class="foot" id="curveFoot" data-i18n="curves.foot">勾选一条线: 画出它、标出根点, 并用同色淡点铺出它的满足侧. 上面的开关决定画整条曲线, 还是只画光路成立的部分.</p>

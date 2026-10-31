@@ -22,7 +22,7 @@ export const PLOT_THEMES = {
   },
 };
 
-/** 等光强线各级的颜色 (由暗到亮的级别依次取; 避开篱笆的红/蓝和焦散的橙) */
+/** 等光强线各级的颜色 (由暗到亮的级别依次取; 避开边界的红/蓝和焦散的橙) */
 export const ISO_COL = [[106, 61, 154], [27, 158, 119], [177, 89, 40], [231, 41, 138], [60, 60, 60], [102, 166, 30]];
 export const css = (c, a = 1) => a >= 1 ? `rgb(${c[0]},${c[1]},${c[2]})` : `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 
@@ -346,7 +346,7 @@ export class Renderer {
             if (run > bestRun && sx > 30 && sx < V.W - 30 && sy > 30 && sy < V.H - 30) { bestRun = run; best = runPts[runPts.length >> 1]; }
             prev = ok; px = sx; py = sy; pX = X; pY = Y; pZ = Z;
           }
-          ctx.strokeStyle = css(col); ctx.lineWidth = Math.max(1, 0.7 * V.lineW); ctx.setLineDash([7, 3]);   // 虚线: 和篱笆/焦散的实线区分
+          ctx.strokeStyle = css(col); ctx.lineWidth = Math.max(1, 0.7 * V.lineW); ctx.setLineDash([7, 3]);   // 虚线: 和边界/焦散的实线区分
           ctx.stroke(path);
           ctx.setLineDash([]);
           if (best && bestRun > 12) labels.push([best[0], best[1], cv.c, col, bestRun]);

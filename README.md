@@ -15,7 +15,7 @@ The whole tool is one HTML file. You can also download [`dist/LightPointTrace.ht
 ## What it shows
 
 - **Arcs in the sky.** The tool samples random crystal orientations (Monte Carlo) to show where the light can go. On top of that cloud it draws the exact edges:
-  - **Fences**: one validity condition is exactly critical, for example the sun grazing the entry face.
+  - **Boundaries**: one validity condition is exactly critical, for example the sun grazing the entry face.
   - **The caustic**: many orientations pile their light onto the same direction, which gives the bright rim you see in photos.
 - **Endpoints.** These are where an arc really ends (●), folds back (▲), forms a cusp in the sky (✱), crosses a blue edge (×) or is cut off by a finite crystal (◆). Each one comes from a closed-form intersection: a quartic in one variable.
 - **Sphere.** The whole celestial sphere seen from outside: the observer at the center, the horizon plane cutting it in half, and the Sun, point cloud, lines and endpoints drawn on the sphere. Orbit around it to see each arc's true shape and where it sits relative to the Sun and the horizon.
@@ -30,7 +30,7 @@ You can choose:
 - **Blue edge** (allow partial reflection).
 - **Refractive index** (default 1.31).
 - **Pyramid faces**: by apex angle or Miller index. The crystal picker can show a pyramidal crystal, so faces 13–18 / 23–28 can be clicked into the path.
-- **Real crystal size**: finite prism, aperture fences.
+- **Real crystal size**: finite prism, aperture boundaries.
 - **Sky camera**: six projections; view direction and field of view can be typed in the left panel.
 
 A built-in glossary explains every term in plain language first, symbols last. The interface is available in Chinese and English.
