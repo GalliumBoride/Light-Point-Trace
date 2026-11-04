@@ -23,7 +23,7 @@ function packRoots(P, ori, om, fx, withD) {
   return ori.fams.map(fm => {
     const r = ori.roots.get(fm.name);
     const n = r.sc.length;
-    const out = { sc: f32(r.sc), sw: f32(r.sw), ok: r.ok };
+    const out = { sc: f32(r.sc), sw: f32(r.sw), ok: r.ok.slice() };     // 拷贝: post 会转移缓冲区, 原数组还要给汇聚点判定用
     if (withD) {
       // 完整曲线像 (勾选族检视用): 根点的天球方向
       const D = new Float32Array(3 * n);
@@ -94,7 +94,7 @@ function oriStages(P, om, fx, emit) {
   emit('ori', { ori: {
     fams: O.fams.map(f => ({ name: f.name, kind: f.kind, j: f.j, sense: f.sense })),
     roots: packRoots(P, O, om, fx, true),
-    mcX: f32(O.mcX), mcY: f32(O.mcY), collapsed,
+    mcX: f32(O.mcX), mcY: f32(O.mcY), collapsed, parallel: !!P.zw,
     side, sideSC: Float32Array.from(iss.map(i => O.SCs[i] * 180 / Math.PI)),
     sideSW: Float32Array.from(iws.map(i => O.SWs[i] * 180 / Math.PI)),
   } }, performance.now() - t);

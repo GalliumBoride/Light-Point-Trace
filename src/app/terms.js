@@ -12,7 +12,8 @@ export const TERM_GROUP = {
   oriplane: 'ori', refine: 'ori', lift3d: 'ori', dof3: 'ori', space3: 'ori', lift3d3: 'ori', arc3: 'fence',
   valid: 'fence', fence: 'fence', entry: 'fence', seam: 'fence', tir: 'fence', exit: 'fence', aperture: 'fence',
   side: 'fence', formal: 'fence', caustic: 'fence', reach: 'fence',
-  endpoints: 'ep', ep_end: 'ep', ep_turn: 'ep', ep_cusp: 'ep', ep_cross: 'ep', ep_aper: 'ep', ep_tan: 'ep', ep_corner: 'ep', ep_hidden: 'ep',
+  endpoints: 'ep', ep_end: 'ep', ep_turn: 'ep', ep_cusp: 'ep', ep_focus: 'ep', ep_cross: 'ep', ep_aper: 'ep', ep_tan: 'ep', ep_corner: 'ep', ep_hidden: 'ep',
+  arcname: 'basic',
   partial: 'other', realcrystal: 'other', apex: 'other', chain: 'other', n: 'other',
 };
 
@@ -89,6 +90,7 @@ export function epLabel(label, partial) {
   };
   return label.split(' | ').map(part => {
     if (part.startsWith('焦散尖点')) return t('ep.cuspSky');
+    if (part === '汇聚点') return t('ep.focusSky');
     if (part.startsWith('孔径∩')) return t('ep.aperture') + t('ep.and') + one(part.slice(3));
     return part.split('∩').map(one).join(t('ep.and'));
   }).join(t('ep.sep'));
@@ -99,6 +101,7 @@ export const EP_KINDS = [
   { kind: 'end', glyph: '●', key: 'epk.end', term: 'ep_end' },
   { kind: 'turn', glyph: '▲', key: 'epk.turn', term: 'ep_turn' },
   { kind: 'cusp', glyph: '✱', key: 'epk.cusp', term: 'ep_cusp' },
+  { kind: 'focus', glyph: '◎', key: 'epk.focus', term: 'ep_focus' },   // 一整段焦散压成天上一点
   { kind: 'cross', glyph: '×', key: 'epk.cross', term: 'ep_cross' },
   { kind: 'aper', glyph: '◆', key: 'epk.aper', term: 'ep_aper' },
   { kind: 'tan', glyph: '◉', key: 'epk.tan', term: 'ep_tan' },          // 三自由度: 圆弧接上端面曲线

@@ -325,6 +325,23 @@ input[type="range"] { flex: 1; min-width: 50px; height: 18px; margin: 0; accent-
 .curve .t .note { font-size: 11px; color: var(--accent-text); }
 .curve .d { grid-column: 2; color: var(--ink-2); font-size: 12px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .mirror-note { margin: 6px 0 2px; padding: 8px 10px 8px 34px; border-radius: 9px; background: var(--sunk); color: var(--ink-2); font-size: 12px; line-height: 1.55; position: relative; }
+.name-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.name-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; padding: 7px 9px; border-radius: 9px; background: var(--sunk); border: 1px solid transparent; text-align: left; }
+.name-item:hover { border-color: var(--line-2); }
+.name-item.on { background: var(--accent-weak); border-color: var(--accent); }
+.name-item .o { font-size: 11px; color: var(--ink-3); }
+.name-item .o i { font-style: normal; margin-left: 5px; padding: 0 4px; border-radius: 4px; background: var(--card); color: var(--ink-3); font-size: 10px; }
+.name-item b { font-size: 12.5px; font-weight: 650; color: var(--ink); overflow-wrap: anywhere; }
+.name-item.on b { color: var(--accent-text); }
+.name-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; color: var(--ink-2); font-size: 12px; line-height: 1.55; }
+.name-steps b { color: var(--ink); font-weight: 600; }
+.name-res { font-size: 12.5px; color: var(--ink-2); }
+.name-res b { color: var(--accent-text); }
+.name-same { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.name-same .lbl { font-size: 11.5px; color: var(--ink-3); margin-right: 2px; }
+.name-same .none { font-size: 11.5px; color: var(--ink-3); }
+.pchip { font: 600 11.5px/1 var(--mono); padding: 5px 7px; border-radius: 7px; background: var(--sunk); border: 1px solid var(--line); color: var(--ink); }
+.pchip:hover { border-color: var(--accent); color: var(--accent-text); }
 .info-note { margin: 6px 0 2px; padding: 8px 10px; border-radius: 9px; background: var(--sunk); color: var(--ink-2); font-size: 12px; line-height: 1.55; }
 .zen-row { display: flex; align-items: center; gap: 10px; color: var(--ink-2); }
 .zen-row > span { white-space: nowrap; min-width: 84px; }

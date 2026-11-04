@@ -108,7 +108,27 @@ export class PathCtx {
     }
     this.nMid = Math.max(0, n - 2);
     this.apSupported = apSupports(faces);
+    this.zw = isParallelPath(this.coef, n);
   }
+}
+
+/**
+ * 平行光路 (0° 楔): 把中间的反射都展开后, 出射面正好是入射面的对面 (如 3-6、3-5-7、3-1-5-7、1-3-2).
+ * 进出两次折射互相抵消, 天空方向就是太阳被几面镜子依次反射: D = L·S, 与折射率、入射角都无关.
+ * 原链在入射面背光一侧 (g0 < 0) 会落到 √ 的另一支, 那里 D = L·(S 关于入射面的镜像), 常常整片退化 (J ≡ 0);
+ * 舍入噪声的正负翻转就成了贴着入射掠射边的一堆假焦散, 出射临界也和入射掠射重合.
+ * 所以平行光路的 D 与 J 直接按 D = L·S 算: 成立一侧与原链完全相同, 背光一侧是同一个解析函数的延拓, 不分支.
+ */
+export function isParallelPath(coef, n) {
+  if (n < 2) return false;
+  const nv = i => { const x = coef[3 * i], y = coef[3 * i + 1], z = coef[3 * i + 2], r = Math.hypot(x, y, z); return [x / r, y / r, z / r]; };
+  let [x, y, z] = nv(n - 1);
+  for (let i = n - 2; i >= 1; i--) {          // n' = R_m1 … R_mk · n_x
+    const u = nv(i), q = x * u[0] + y * u[1] + z * u[2];
+    x -= 2 * q * u[0]; y -= 2 * q * u[1]; z -= 2 * q * u[2];
+  }
+  const e = nv(0);
+  return x * e[0] + y * e[1] + z * e[2] < -1 + 1e-9;
 }
 
 // ---------- 取向 ----------
@@ -150,6 +170,8 @@ export function chain3(sc, sw, m, fixedAng, P, out) {
   const t0 = -g0 + Math.sqrt(g0 * g0 + K);
   let Px = A3[0] + t0 * ux, Py = A3[1] + t0 * uy, Pz = A3[2] + t0 * uz;
   out.g0 = g0;
+  const zw = P.zw;
+  let Xx = A3[0], Xy = A3[1], Xz = A3[2];          // 平行光路: 太阳本身逐面反射 (D = L·S)
   for (let i = 1; i < n - 1; i++) {
     c1 = cf[3 * i]; c2 = cf[3 * i + 1]; c3 = cf[3 * i + 2];
     ux = c1 * e[0] + c2 * e[3] + c3 * e[6];
@@ -158,6 +180,7 @@ export function chain3(sc, sw, m, fixedAng, P, out) {
     const q = Px * ux + Py * uy + Pz * uz;
     Px -= 2 * q * ux; Py -= 2 * q * uy; Pz -= 2 * q * uz;
     out.qs[i - 1] = q;
+    if (zw) { const qx = Xx * ux + Xy * uy + Xz * uz; Xx -= 2 * qx * ux; Xy -= 2 * qx * uy; Xz -= 2 * qx * uz; }
   }
   const j = 3 * (n - 1);
   c1 = cf[j]; c2 = cf[j + 1]; c3 = cf[j + 2];
@@ -167,7 +190,8 @@ export function chain3(sc, sw, m, fixedAng, P, out) {
   const qE = Px * ux + Py * uy + Pz * uz;
   const tE = -qE - Math.sqrt(Math.max(qE * qE - K, 0.0));
   out.qE = qE;
-  out.Dx = Px + tE * ux; out.Dy = Py + tE * uy; out.Dz = Pz + tE * uz;
+  if (zw) { out.Dx = Xx; out.Dy = Xy; out.Dz = Xz; }
+  else { out.Dx = Px + tE * ux; out.Dy = Py + tE * uy; out.Dz = Pz + tE * uz; }
   return out;
 }
 
@@ -208,9 +232,32 @@ function clampMask(qE, v) {
 const _JE = new Float64Array(9), _JW = new Float64Array(6);
 const _JU = new Float64Array(3 * 64);
 
+/** 平行光路的 J: D = L·S 只有反射, 从太阳 (导数 0) 开始逐面反射, 不经过折射的 √ (见 isParallelPath). */
+function janaPar(e, P) {
+  const cf = P.coef, n = P.faces.length, A3 = LP.A3;
+  let X0 = A3[0], X1 = A3[1], X2 = A3[2];
+  let a0 = 0, a1 = 0, a2 = 0, b0 = 0, b1 = 0, b2 = 0;
+  for (let i = 1; i < n - 1; i++) {
+    const c1 = cf[3 * i], c2 = cf[3 * i + 1], c3 = cf[3 * i + 2];
+    const ux = c1 * e[0] + c2 * e[3] + c3 * e[6], uy = c1 * e[1] + c2 * e[4] + c3 * e[7], uz = c1 * e[2] + c2 * e[5] + c3 * e[8];
+    const q = X0 * ux + X1 * uy + X2 * uz;
+    let wx = _JW[0], wy = _JW[1], wz = _JW[2];
+    let dux = wy * uz - wz * uy, duy = wz * ux - wx * uz, duz = wx * uy - wy * ux;
+    let dq = a0 * ux + a1 * uy + a2 * uz + X0 * dux + X1 * duy + X2 * duz;
+    a0 -= 2 * dq * ux + 2 * q * dux; a1 -= 2 * dq * uy + 2 * q * duy; a2 -= 2 * dq * uz + 2 * q * duz;
+    wx = _JW[3]; wy = _JW[4]; wz = _JW[5];
+    dux = wy * uz - wz * uy; duy = wz * ux - wx * uz; duz = wx * uy - wy * ux;
+    dq = b0 * ux + b1 * uy + b2 * uz + X0 * dux + X1 * duy + X2 * duz;
+    b0 -= 2 * dq * ux + 2 * q * dux; b1 -= 2 * dq * uy + 2 * q * duy; b2 -= 2 * dq * uz + 2 * q * duz;
+    X0 -= 2 * q * ux; X1 -= 2 * q * uy; X2 -= 2 * q * uz;
+  }
+  return (a1 * b2 - a2 * b1) * X0 + (a2 * b0 - a0 * b2) * X1 + (a0 * b1 - a1 * b0) * X2;
+}
+
 export function jana3(sc, sw, m, fixedAng, P) {
   const e = orientOf(m, fixedAng, sc, sw, _JE);
   gens(m, fixedAng, sc, sw, _JW);
+  if (P.zw) return janaPar(e, P);
   const cf = P.coef, n = P.faces.length, A3 = LP.A3;
   const U = n <= 64 ? _JU : new Float64Array(3 * n);
   for (let i = 0; i < n; i++) {

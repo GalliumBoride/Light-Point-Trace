@@ -798,6 +798,11 @@ export function drawEpGlyphOn(ctx, sx, sy, kind, rim) {
     ctx.stroke();
     ctx.beginPath(); ctx.arc(sx, sy, 2.2, 0, 2 * Math.PI);
     ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 1.1; ctx.strokeStyle = rim; ctx.stroke();
+  } else if (kind === 'focus') {                     // 汇聚点: 一整段焦散压成天上一点
+    ctx.beginPath(); ctx.arc(sx, sy, 7, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(148, 103, 189, 0.18)'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#9467bd'; ctx.stroke();
+    ctx.beginPath(); ctx.arc(sx, sy, 2.6, 0, 2 * Math.PI);
+    ctx.fillStyle = '#9467bd'; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = rim; ctx.stroke();
   } else if (kind === 'tan') {                       // 三自由度: 圆弧接上端面曲线
     ctx.beginPath(); ctx.arc(sx, sy, 5.5, 0, 2 * Math.PI);
     ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = rim; ctx.stroke();

@@ -6,6 +6,7 @@ import { zenHalfOn, zenEdgeSky, zenHalfEndpoints } from './zenhalf.js';
 import { AP } from './aperture.js';
 import { computeEndpoints } from './ep.js';
 import { getFamLines, apertureEndpoints } from './formlogic.js';
+import { tidyEndpoints } from './parallel.js';
 
 /**
  * 全局配置 (同窗体 Recompute 开头): 太阳高度°, 部分反射, 锥晶顶角°, 真实晶体孔径层.
@@ -53,13 +54,13 @@ export function computeMain(faces, modeIdx, om, fx, rollDeg) {
   return { name: P.name, faces, P, sky, mc, ori, traceMs, oriMs: performance.now() - t0 - traceMs };
 }
 
-/** 末端点 (2DOF): 闭式引擎 + 真实晶体孔径末端点. */
+/** 末端点 (2DOF): 闭式引擎 + 真实晶体孔径末端点, 再整理 (假焦散端 / 孤立交点 / 汇聚点, 见 parallel.js). */
 export function computeEps(pr, om, fx) {
   let eps;
   try { eps = computeEndpoints(pr.faces, om, fx); } catch (e) { eps = []; }
   try { eps.push(...apertureEndpoints(pr.P, pr.ori, om, fx)); } catch (e) { /* 同 C#: 忽略 */ }
   if (zenHalfOn(om)) eps = zenHalfEndpoints(eps, pr.P, om, fx, allFams(pr.P, om));
-  return eps;
+  return tidyEndpoints(eps, pr, om, fx);
 }
 
 /** 全部族的连线 (族序 = 绘制顺序; 相接点注册表每光路一份). 返回 Map(族名 → {par, sky}). skip: 不追踪的族名 */

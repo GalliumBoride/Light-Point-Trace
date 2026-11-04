@@ -9,6 +9,7 @@ import { parsePaths, modeParams } from '../engine/formlogic.js';
 import { apexDegFromMiller, millerFromApexDeg, setSun, setIndex, axesMeta, isPyramidFace, LP, SqK } from '../engine/lp.js';
 import { apSupports } from '../engine/aperture.js';
 import { term, famInfo, skyName, epLabel, EP_KINDS } from './terms.js';
+import { classifyPath } from '../engine/classify.js';
 import { PRESETS } from './presets.js';
 import { initGlossary } from './glossary.js';
 import { View3D, KIND3D } from './view3d.js';
@@ -120,6 +121,65 @@ function renderChain() {
   });
   if (groups.length > 6) problems.push(tr('path.errMax'));
   if (problems.length) msg.textContent = problems[0] + tr('path.errHelp');
+  renderName();
+}
+
+// ============================================================ 弧的名字 (336 弧表, engine/classify.js)
+// 随输入即时更新, 不等计算: ① 镜子挪到最后 ② 楔角定家族 ③ 在这种取向里面和镜子是什么样 → 名字; 再列同一片晕的其他光路.
+const NAME_KEYS = ['column', 'plate', 'parry', 'lowitz'];      // 与 S.mode 同序
+function renderName() {
+  const card = $('nameCard'), box = $('nameBody');
+  box.textContent = ''; $('nameAside').textContent = '';
+  const groups = $('inPath').value.trim().split(/[,;，；\s]+/).filter(Boolean);
+  const faces = groups.length ? groups[0].split('-').filter(Boolean).map(Number) : [];
+  card.hidden = faces.length < 2 || faces.some(f => !Number.isInteger(f));
+  if (card.hidden) return;
+  const c = classifyPath(faces);
+  if (!c) { box.append(el('p', 'foot', tr(faces.some(f => f > 8) ? 'name.pyr' : 'name.none'))); return; }
+  $('nameAside').textContent = tr('name.row', { n: c.row });
+  const grid = el('div', 'name-grid');
+  NAME_KEYS.forEach((k, m) => {
+    const b = el('button', 'name-item' + (m === S.mode ? ' on' : ''));
+    const o = el('span', 'o', modeInfo(m).name);
+    if (k === 'lowitz') o.append(el('i', '', tr('name.proposed')));
+    b.append(o, el('b', '', c.names[k]));
+    b.title = tr('name.switch', { o: modeInfo(m).name });
+    b.addEventListener('click', () => { if (S.mode !== m) { S.mode = m; syncMode(); compute(); } });
+    grid.append(b);
+  });
+  box.append(grid);
+  // 三步
+  const s = c.steps, R0 = s.roles[S.mode] || s.roles[0], oName = modeInfo(S.mode).name;
+  const lTxt = L => L.type === 'mirror' ? tr(L.faces[0] === 1 ? 'name.L.basal' : 'name.L.prism', { f: L.faces.join('/') })
+    : L.type === 'half' ? tr('name.L.half', { f: L.faces.join('/') }) : tr('name.L.' + L.type);
+  const lWorld = L => L.type === 'mirror' ? tr('name.Lw.mirror.' + L.world) : L.type === 'half' ? tr('name.Lw.half.' + L.world)
+    : tr('name.Lw.turn.' + L.world) + (L.type === 'turn120m' ? tr('name.Lw.plusBasal') : '');
+  const ol = el('ol', 'name-steps');
+  const li = h => { const x = el('li'); x.innerHTML = h; ol.append(x); };
+  li(s.mids.length ? tr('name.s1', { e: s.e, mids: s.mids.join('、'), xd: s.xd, L: lTxt(s.L) }) : tr('name.s1direct', { e: s.e, x: s.x }));
+  li(tr('name.w' + s.wedge, { e: s.e, xd: s.xd }));
+  li(s.wedge === 0 ? tr('name.s3zw', { o: oName, L: lWorld(R0.L) })
+    : tr(R0.L.type === 'none' ? 'name.s3' : 'name.s3L', { o: oName, ek: tr('name.k.' + R0.e), xk: tr('name.k.' + R0.xd), L: R0.L.type === 'none' ? '' : lWorld(R0.L) }));
+  box.append(ol);
+  const res = el('p', 'name-res');
+  res.innerHTML = tr('name.result', { o: oName, name: c.names[NAME_KEYS[S.mode]] });
+  box.append(res);
+  // 同一片晕
+  const sm = c.same[S.mode];
+  const same = el('div', 'name-same');
+  const k = NAME_KEYS[S.mode];
+  same.append(el('span', 'lbl', tr(k === 'parry' || k === 'lowitz' ? 'name.same.' + k : 'name.same', { o: oName })));
+  if (!sm.paths.length) same.append(el('span', 'none', tr('name.sameNone')));
+  for (const p of sm.paths.slice(0, 12)) {
+    const b = el('button', 'pchip', p);
+    b.title = tr('name.load', { p });
+    b.addEventListener('click', () => setPathText(p, 0));
+    same.append(b);
+  }
+  if (sm.paths.length > 12) same.append(el('span', 'none', tr('name.more', { n: sm.paths.length - 12 })));
+  box.append(same);
+  if (sm.conflict) box.append(el('p', 'foot', tr('name.conflict', { names: sm.conflict.join(' / ') })));
+  if (groups.length > 1) box.append(el('p', 'foot', tr('name.multi')));
 }
 
 let editTimer = 0;
@@ -563,7 +623,7 @@ function readout3d(h) {
 }
 
 // ============================================================ 右栏: 解读
-const KIND_ORDER = { end: 0, turn: 1, cusp: 2, cross: 3, aper: 4, tan: 5, corner: 6 };
+const KIND_ORDER = { end: 0, turn: 1, cusp: 2, focus: 3, cross: 4, aper: 5, tan: 6, corner: 7 };
 /** 三自由度末端点: 哪几段边在这里相接 */
 function d3EpLabel(r, pr) {
   const P = R ? R.params : {};
@@ -609,12 +669,14 @@ function renderCurves() {
         if (multi && S.view !== 2) sw.style.boxShadow = `0 0 0 2px ${css(th.palette[fi % th.palette.length], 0.35)}`;
         const t = el('div', 't');
         const flat = fm.kind === 6 && pr.ori.collapsed;      // 整块压成一条线: 焦散没有意义, 不画
+        const same = fm.kind === 3 && pr.ori.parallel;       // 平行光路: 出射临界就是入射掠射
         t.append(el('b', '', info.title), el('code', '', info.tag));
         if (info.note) t.append(el('span', 'note', info.note));
         if (flat) t.append(el('span', 'note', tr('curves.noDraw')));
+        if (same) t.append(el('span', 'note', tr('curves.sameAsEntry')));
         const q = el('button', 'qmark', '?'); q.dataset.term = info.term; q.setAttribute('aria-label', tr('curves.explain', { name: info.title }));
         t.append(q);
-        const d = el('div', 'd', flat ? tr('curves.collapsed') : term(info.term).short);
+        const d = el('div', 'd', flat ? tr('curves.collapsed') : same ? tr('curves.parallelExit') : term(info.term).short);
         const hl = el('span', 'hl', tr(on ? 'curves.hlOn' : 'curves.hl'));
         row.append(sw, t, hl, d);
         const toggle = () => {
@@ -626,6 +688,7 @@ function renderCurves() {
         box.append(row);
       });
       if (S.sym && S.view === 1 && P.twoDof) box.append(el('div', 'mirror-note', mirrorNote(pr)));
+      if (pr.ori.parallel) box.append(el('div', 'info-note', tr('curves.parallel')));
       if (P.zenHalf && k === T.paths.length - 1) box.append(el('div', 'info-note', tr('curves.zenHalf')));
     } else if (P.dof3 && pr.sky) {
       // 三自由度: 外轮廓由哪几种线组成 (同名的合成一行)
@@ -684,6 +747,7 @@ function renderEndpoints() {
     const cnt = rows.filter(x => x.r.kind === K.kind).length;
     if (cnt === 0 && ((K.kind === 'cross' && !T.params.partial) || (K.kind === 'aper' && !T.params.real))) continue;
     if (cnt === 0 && ((K.kind === 'tan' || K.kind === 'corner') !== d3)) continue;
+    if (cnt === 0 && K.kind === 'focus') continue;
     const b = el('button', 'epk' + (cnt ? '' : ' zero'));
     b.dataset.term = K.term;
     b.append(el('span', 'gl gl-' + K.kind, K.glyph), el('span', 'n', String(cnt)), el('span', 'nm', tr(K.key)));
@@ -924,6 +988,7 @@ function syncView() {
 }
 
 function syncMode() {
+  renderName();
   document.querySelectorAll('#modes button').forEach(b => {
     const on = +b.dataset.mode === S.mode;
     b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));

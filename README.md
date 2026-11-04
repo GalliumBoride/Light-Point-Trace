@@ -24,6 +24,7 @@ The whole tool is one HTML file. You can also download [`dist/LightPointTrace.ht
 - **Three degrees of freedom (third angle over a range).** Column ζ, plate tilt or Lowitz roll can take a whole range of values (wobbling crystals). The arc spreads into a patch whose edge has only two kinds of piece: the 2DOF boundaries and caustics at the two ends of the range, and arcs centered on the sun whose radii are critical deviation angles fixed by the light path. The app tests a point on each side of every candidate piece, asking whether this crystal population sends light there (1-D tracing along an equal-deviation curve, no grid), and draws the true outline with its 3DOF endpoints (tangent joins, corners, end-slice endpoints). The orientation plane becomes a 3D orientation space (a box whose top and bottom faces are the end orientation planes, with exact boundary surfaces and arc preimages inside), and the 3D lift becomes a stack with height = third angle.
 - **Equal-intensity lines** (turn on in Layers). Lines joining sky points of equal brightness, labeled with the value (share of crystals per steradian). The intensity is the sum over every orientation landing on the point, Σ w/|J| / 4π², with J the light-point Jacobian and w either "projected area × Fresnel" (entry-face area facing the sun times the transmission/reflection at each face, all from the normal momenta) or geometric density only. No random crystals and no pixel counting: each line is traced point by point along "intensity = value", and ends on a caustic where the intensity jumps. Column prism-wedge paths take a few seconds; Lowitz 3-5 and pyramid paths need a one-dimensional solve and take ten or more. Two-angle orientations only (Column, Lowitz).
 - **Mirror fill-in.** Mirroring the sky left to right brings in the orientations and light path that produce the mirror half. These are drawn in the orientation plane too, for example 3-1-5 ↔ 3-2-5.
+- **Arc name.** As you type a path (basal and prism faces), the right panel names the arc for all four orientations, from the 336-arc table. It shows in three steps where the name comes from: move the internal mirrors to the end, let the wedge angle pick the family, then see what the faces and the combined mirror are in that orientation (horizontal, vertical or tilted). It also lists the other paths that draw the same halo; click one to switch to it.
 
 You can choose:
 - **Orientation**: column crystals (fixed c-axis tilt), plates, Parry, Lowitz. For Lowitz, ζ can make a full turn (0–360°) or only a half turn (0–180°); a half turn cuts the region off where the crystal lies flat, and that cut gets its own boundary curve and endpoints.
@@ -45,6 +46,8 @@ The method is called the *light-point method*. A ray direction is drawn as a poi
 A light path is then just a short chain of translations and mirror images. Whether it works for a given orientation comes down to the signs of a few scalars: g₀, q_k and q_E. The arc's boundaries are where those scalars reach their critical values, so they can be traced exactly. The caustic is the fold line of the map from orientation to sky direction, where the Jacobian J = (∂ᵤD × ∂ᵥD)·D is zero.
 
 Some paths, such as column 3-5-6-8, squash every valid orientation onto one line in the sky (J ≡ 0). The tool detects this and does not trace a caustic, which would only be rounding noise.
+
+*Parallel paths* are paths whose exit face, once the reflections are unfolded, is parallel to the entry face, for example 3-6, 3-5-7 and 3-1-5-7. In these the two refractions cancel, so the sky direction is just the sun in the combined mirror, D = L·S, whatever the refractive index. The tool computes D and J for them directly from this formula. Often a whole stretch of orientations lands on a single sky point there (the anthelion for column 3-1-5-7); such points are marked as focus points (◎).
 
 The engine (`src/engine/`) is a line-by-line JavaScript port of the author's C# engine. It was cross-checked on 14 test cases covering:
 - column and Lowitz orientations;
@@ -70,6 +73,7 @@ This writes `dist/LightPointTrace.html`, a single file with the CSS, JavaScript,
 ```
 src/engine/   light-point engine: chains, Jacobian, families, orientation plane, sky tracing, endpoints,
               aperture (real crystal), 3D lift mesh (lift.js), mirror paths (mirror.js), J ≡ 0 detection (collapse.js),
+              endpoint tidy-up for parallel paths and focus points (parallel.js), arc names (classify.js + arcnames.js),
               3DOF outline and endpoints (dof3.js)
 src/worker.js computation worker (each path runs in two workers in parallel: sky, and orientation plane → endpoints → lines)
 src/app/      interface: main.js, render.js (sky / orientation plane), view3d.js (3D lift, three.js),

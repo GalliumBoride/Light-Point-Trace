@@ -15,7 +15,7 @@ const D2R = Math.PI / 180;
 const ZH = 0.45;                       // 方盒 / 抬升的半高
 const SRC_COL = { interior: [44, 160, 44], fence: [148, 103, 189], corner: [140, 86, 75] };
 const SLICE_COL = [[31, 119, 180], [214, 39, 40]];
-const EP_COL = { tan: [44, 160, 44], corner: [224, 123, 0], end: [255, 210, 26], turn: [124, 200, 246], cusp: [224, 64, 224], aper: [255, 106, 51], cross: [138, 143, 152] };
+const EP_COL = { tan: [44, 160, 44], corner: [224, 123, 0], end: [255, 210, 26], turn: [124, 200, 246], cusp: [224, 64, 224], focus: [148, 103, 189], aper: [255, 106, 51], cross: [138, 143, 152] };
 const col3 = c => new THREE.Color(c[0] / 255, c[1] / 255, c[2] / 255);
 
 export class Dof3View {
