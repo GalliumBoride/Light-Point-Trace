@@ -151,10 +151,22 @@ export function ruled1(P, m, fixedAng, fixedV, valid) {
     prev = next;
   }
   const F = framesOf(P, m, fixedAng, uv);
-  const runs = runsOf(F, ok, true);
+  const runs0 = runsOf(F, ok, true);
   const deg = g => ((uv[2 * g] * 180 / Math.PI) % 360 + 360) % 360;
-  const reachRuns = runs.filter(r => r.reach).sort((a, b) => deg(a.gens[0]) - deg(b.gens[0]));
-  const pieces = runs.map(r => ({ ...pieceMesh(F, r.gens, r.reach), region: r.reach ? reachRuns.indexOf(r) + 1 : 0, loop: 1, nLoops: 1, seg: 0,
+  const reachRuns = runs0.filter(r => r.reach).sort((a, b) => deg(a.gens[0]) - deg(b.gens[0]));
+  reachRuns.forEach((r, i) => { r.region = i + 1; });
+  // 延伸也归到区: 一段延伸接着前后两块区域 (母线序号相同即相接), 两块不同就从中间分开, 各归各的
+  const runs = [];
+  for (const r of runs0) {
+    if (r.reach) { runs.push(r); continue; }
+    const g0 = r.gens[0], g1 = r.gens[r.gens.length - 1];
+    const a = reachRuns.find(q => q.gens[q.gens.length - 1] === g0), b = reachRuns.find(q => q.gens[0] === g1);
+    if (a && b && a !== b && r.gens.length > 2) {
+      const mid = r.gens.length >> 1;
+      runs.push({ reach: false, gens: r.gens.slice(0, mid + 1), region: a.region }, { reach: false, gens: r.gens.slice(mid), region: b.region });
+    } else runs.push({ ...r, region: (a || b) ? (a || b).region : 0 });
+  }
+  const pieces = runs.map(r => ({ ...pieceMesh(F, r.gens, r.reach), region: r.region || 0, loop: 1, nLoops: 1, seg: 0,
                                   a0: deg(r.gens[0]), a1: deg(r.gens[r.gens.length - 1]) }));
   return { pieces };
 }
@@ -216,15 +228,20 @@ export function regionLabeler(ori, perX, perY) {
  *          (先按环号, 环内按离片中点最近的分界线点的序号), 焦散片接在后面编号.
  *   去重: 边界连线里同一段常出现好几次 (平移 360° 的周期副本、反向再走一遍、只覆盖一部分 — 取向平面视图拿它们拼周期图),
  *          曲面若照画会一层叠一层 (半透明越叠越实、共面打架). 按长短从长到短, 大部分点都落在已留片附近的算副本.
- * 返回 Map(边界名 → [{ uv, F, runs }]), runs 里可达片带 region / loop / nLoops / seg; 重复的片标 dup, 不出网格.
+ *   焦散: 连同补线 (conn) 一起扫; 连线在掉头处切开 (贴篱笆的细环一去一回, 切开后去重留一半);
+ *          在出射临界处换支的地方补一小段桥 (bridgeCaustic), 不成立一侧的延伸才接得上; 同一块区域里互相碰到的焦散片并成一条.
+ *   延伸: 不可达片归到它接着的可达片的区域与边号 (assignExt), 界面上是「区k·j 延伸」.
+ * 返回 Map(边界名 → [{ uv, F, runs }]), runs 里的片带 region / seg (可达片另有 loop / nLoops); 重复的片标 dup, 不出网格.
  */
 export function ruledPrepare(P, m, fixedAng, lines, ori, perX, perY, causticName = 'J=0 焦散') {
   const labelAt = regionLabeler(ori, perX, perY);
   const fams = new Map();
   for (const [name, fl] of lines) {
     const polys = [];
-    for (let li = 0; li < fl.par.length; li++) {
-      const par = fl.par[li], sky = fl.sky[li], n = par.length / 2;
+    // 焦散补线 (conn) 一起扫: 网格追踪的焦散总在离出射临界一两个胞元处停下, 补线把它接到临界点上 (别的视图也都用它)
+    const pars = [...fl.par, ...(fl.conn ? fl.conn.par : [])], skys = [...fl.sky, ...(fl.conn ? fl.conn.sky : [])];
+    for (let li = 0; li < pars.length; li++) {
+      const par = pars[li], sky = skys[li], n = par.length / 2;
       if (n < 2) continue;
       const uv = [], ok = [];
       let lu = NaN, lv = NaN;
@@ -236,8 +253,11 @@ export function ruledPrepare(P, m, fixedAng, lines, ori, perX, perY, causticName
         uv.push(par[2 * i], par[2 * i + 1]); ok.push(o);
         lu = par[2 * i]; lv = par[2 * i + 1];
       }
-      const F = framesOf(P, m, fixedAng, uv);
-      polys.push({ uv, F, runs: runsOf(F, ok, false) });
+      for (const [uv1, ok1] of splitAtReversals(uv, ok)) {
+        if (ok1.length < 2) continue;
+        const F = framesOf(P, m, fixedAng, uv1);
+        polys.push({ uv: uv1, F, runs: runsOf(F, ok1, false) });
+      }
     }
     fams.set(name, polys);
   }
@@ -287,6 +307,7 @@ export function ruledPrepare(P, m, fixedAng, lines, ori, perX, perY, causticName
       }
     }
   }
+  if (fams.has(causticName)) bridgeCaustic(P, m, fixedAng, fams.get(causticName));
   // 成立区域的分界线 (网格上 ±1 的等值线), 每条一个环; 区域号取线上各点附近成立格点所在的块 (多数)
   const sgn = new Float64Array(ori.valid.length);
   for (let i = 0; i < sgn.length; i++) sgn[i] = ori.valid[i] ? 1 : -1;
@@ -357,6 +378,24 @@ export function ruledPrepare(P, m, fixedAng, lines, ori, perX, perY, causticName
     const A = all[ids[0]], B = all[ids[1]];
     if (A.name === B.name && A !== B && A.r.region === B.r.region) up[root(A.i)] = root(B.i);
   }
+  // 焦散在区域里面, 没有角点之分: 同一块区域里互相碰到的焦散片 (片端离另一片的线 < 0.5°, 同去重的容差) 都并成一条
+  // (补线、掉头处切开、去重删掉的连接段, 都会让焦散在没有角点的地方断开)
+  const near20 = (u, v, uu, vv) => {
+    let du = u - uu, dv = v - vv;
+    if (perX) du -= TAU0 * Math.round(du / TAU0);
+    if (perY) dv -= TAU0 * Math.round(dv / TAU0);
+    return du * du + dv * dv;
+  };
+  const endUV0 = it => [it.r.gens[0], it.r.gens[it.r.gens.length - 1]].map(g => [it.pl.uv[2 * g], it.pl.uv[2 * g + 1]]);
+  const cau = all.filter(it => it.name === causticName);
+  const touchUV = (it, jt) => {
+    for (const p of endUV0(it))
+      for (const g of jt.r.gens) if (near20(p[0], p[1], jt.pl.uv[2 * g], jt.pl.uv[2 * g + 1]) < tolD * tolD) return true;
+    return false;
+  };
+  for (const it of cau)
+    for (const jt of cau)
+      if (it !== jt && it.r.region === jt.r.region && root(it.i) !== root(jt.i) && (touchUV(it, jt) || touchUV(jt, it))) up[root(it.i)] = root(jt.i);
   // 角点处吸附出来的碎片 (不到 6 条母线) 并进同一条边界、同一块区域里离它最近的那条边
   const sizeOf = new Map();
   for (const it of all) sizeOf.set(root(it.i), (sizeOf.get(root(it.i)) || 0) + it.r.gens.length);
@@ -390,7 +429,219 @@ export function ruledPrepare(P, m, fixedAng, lines, ori, perX, perY, causticName
     list.sort((x, y) => x.loop - y.loop || x.at - y.at || y.len - x.len);
     list.forEach((e, i) => { for (const r of e.rs) { r.seg = i + 1; delete r._at; } });
   }
+  for (const polys of fams.values()) { assignExt(polys); dedupe3D(polys); }
   return fams;
+}
+
+/**
+ * 三维去重 (只去不可达片): 换一张图 (另一支) 看, 同一批母线常又出现一遍, 只是方向反过来 — 例如入射掠射 g0 = 0 与出射面无关,
+ * Lowitz 3-1 里 (u, v) 与 (u+180°, 180°−v) 是同一条线, 那边整条都算不成立. 曲面照画就是同一张叠两层.
+ * 按 可达 → 归了区的延伸 → 没归区的延伸、各自从长到短的顺序留片; 一片不可达片若 ≥ 80% 的母线落在已留片的母线折线上
+ * ((P, ±e) 六维距离 < 2e-3), 就是副本. 焦散两支的线本来就不重合 (差 0.02 以上), 不受影响.
+ */
+function dedupe3D(polys) {
+  const runs = [];
+  for (const pl of polys) for (const r of pl.runs) if (!r.dup) runs.push({ pl, r });
+  const rank = it => (it.r.reach ? 0 : it.r.region ? 1 : 2);
+  runs.sort((a, b) => rank(a) - rank(b) || b.r.gens.length - a.r.gens.length);
+  const cell = 0.02, H = new Map(), ck = (i, j, k) => i + ',' + j + ',' + k, tol = 2e-3;
+  const segDist = (x, F, a, b) => {                 // x 到母线折线一段 [a, b] 的六维距离, 方向按 x 对齐正负
+    const oa = 6 * a, ob = 6 * b, sa = F[oa + 3] * x[3] + F[oa + 4] * x[4] + F[oa + 5] * x[5] < 0 ? -1 : 1;
+    const sb = F[ob + 3] * x[3] + F[ob + 4] * x[4] + F[ob + 5] * x[5] < 0 ? -1 : 1;
+    const A = [0, 1, 2, 3, 4, 5].map(i => (i < 3 ? F[oa + i] : sa * F[oa + i]));
+    const B = [0, 1, 2, 3, 4, 5].map(i => (i < 3 ? F[ob + i] : sb * F[ob + i]));
+    let dd = 0, dx = 0;
+    for (let i = 0; i < 6; i++) { dd += (B[i] - A[i]) ** 2; dx += (x[i] - A[i]) * (B[i] - A[i]); }
+    const t = dd > 0 ? Math.max(0, Math.min(1, dx / dd)) : 0;
+    let d = 0;
+    for (let i = 0; i < 6; i++) d += (x[i] - A[i] - t * (B[i] - A[i])) ** 2;
+    return Math.sqrt(d);
+  };
+  for (const it of runs) {
+    const F = it.pl.F, gs = it.r.gens;
+    if (!it.r.reach) {
+      let cov = 0;
+      for (const g of gs) {
+        const o = 6 * g, x = [F[o], F[o + 1], F[o + 2], F[o + 3], F[o + 4], F[o + 5]];
+        const i0 = Math.floor(x[0] / cell), j0 = Math.floor(x[1] / cell), k0 = Math.floor(x[2] / cell);
+        let hit = false;
+        for (let di = -1; di <= 1 && !hit; di++) for (let dj = -1; dj <= 1 && !hit; dj++) for (let dk = -1; dk <= 1 && !hit; dk++) {
+          const L = H.get(ck(i0 + di, j0 + dj, k0 + dk));
+          if (!L) continue;
+          for (let t = 0; t < L.length && !hit; t += 2) {
+            const kept = L[t], k = L[t + 1], gg = kept.r.gens, KF = kept.pl.F;
+            if ((k > 0 && segDist(x, KF, gg[k - 1], gg[k]) < tol) || (k + 1 < gg.length && segDist(x, KF, gg[k], gg[k + 1]) < tol)) hit = true;
+          }
+        }
+        if (hit) cov++;
+      }
+      if (cov >= 0.8 * gs.length) { it.r.dup = true; continue; }
+    }
+    gs.forEach((g, k) => {
+      const o = 6 * g, key = ck(Math.floor(F[o] / cell), Math.floor(F[o + 1] / cell), Math.floor(F[o + 2] / cell));
+      if (!H.has(key)) H.set(key, []);
+      H.get(key).push(it, k);
+    });
+  }
+}
+
+/** 取向平面里连线在哪里掉头 (相邻两段夹角 > 135°): 在那里切开. 贴篱笆的焦散细环一去一回, 切开后两半各成一片, 去重留一半. */
+function splitAtReversals(uv, ok) {
+  const n = ok.length, out = [];
+  let s = 0;
+  for (let i = 1; i < n - 1; i++) {
+    const ax = uv[2 * i] - uv[2 * i - 2], ay = uv[2 * i + 1] - uv[2 * i - 1];
+    const bx = uv[2 * i + 2] - uv[2 * i], by = uv[2 * i + 3] - uv[2 * i + 1];
+    const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+    if (la > 1e-12 && lb > 1e-12 && ax * bx + ay * by < -0.7 * la * lb) {
+      out.push([uv.slice(2 * s, 2 * i + 2), ok.slice(s, i + 1)]);
+      s = i;
+    }
+  }
+  out.push([uv.slice(2 * s), ok.slice(s)]);
+  return out;
+}
+
+/** 解取向 (u, v), 使它的母线 (P, n_out) 等于 target (6 个数); 从 (u0, v0) 起高斯-牛顿. 解不出返回 null */
+function solveFrame(P, m, fixedAng, target, u0, v0) {
+  const f = new Float64Array(6), fu = new Float64Array(6), fv = new Float64Array(6), h = 1e-7;
+  let u = u0, v = v0;
+  for (let it = 0; it < 40; it++) {
+    ruledFrame(P, m, fixedAng, u, v, f);
+    let rr = 0;
+    for (let i = 0; i < 6; i++) rr += (f[i] - target[i]) ** 2;
+    if (rr < 1e-22) return [u, v];
+    ruledFrame(P, m, fixedAng, u + h, v, fu);
+    ruledFrame(P, m, fixedAng, u, v + h, fv);
+    let aa = 0, ab = 0, bb = 0, ar = 0, br = 0;
+    for (let i = 0; i < 6; i++) {
+      const a = (fu[i] - f[i]) / h, b = (fv[i] - f[i]) / h, r = f[i] - target[i];
+      aa += a * a; ab += a * b; bb += b * b; ar += a * r; br += b * r;
+    }
+    const det = aa * bb - ab * ab;
+    if (!(Math.abs(det) > 1e-30)) return null;
+    const du = -(bb * ar - ab * br) / det, dv = -(aa * br - ab * ar) / det;
+    u += du; v += dv;
+    if (Math.abs(u - u0) + Math.abs(v - v0) > 0.2) return null;
+  }
+  ruledFrame(P, m, fixedAng, u, v, f);
+  let rr = 0;
+  for (let i = 0; i < 6; i++) rr += (f[i] - target[i]) ** 2;
+  return rr < 1e-16 ? [u, v] : null;
+}
+
+/**
+ * 焦散在出射临界那里换支: 母线与天球相切 (q_E² = K), 过了这一点母线就从另一支接着走 — 取向平面里是另一处 (另一张图),
+ * 同一条直线只是方向反过来 (例: Lowitz 3-1 里 (u, v) 与 (u+180°, 180°−v)). 补线只把成立那一侧接到临界点上
+ * (末端点表只有成立弧的端点), 不成立那一侧的焦散照旧在一两个胞元外停下, 曲面就在中间空开一条缝.
+ * 对每个正好落在临界上的片端: 把它的母线反向, 在别的片里找最近的母线 (P 差 < 0.1, 方向差 < 6°),
+ * 解出这条反向母线在那一支上的取向, 从最近那点直线连过去 (≤ 4°, 每 0.2° 一条母线), 成立性随那一侧.
+ */
+function bridgeCaustic(P, m, fixedAng, polys) {
+  const live = [];
+  for (const pl of polys) for (const r of pl.runs) if (!r.dup) live.push([pl, r]);
+  const seen = new Set(), added = [], cosTol = Math.cos(6 * Math.PI / 180);
+  for (const [cpl, cr] of live)
+    for (const g of [cr.gens[0], cr.gens[cr.gens.length - 1]]) {
+      const o = 6 * g, F = cpl.F, q = F[o] * F[o + 3] + F[o + 1] * F[o + 4] + F[o + 2] * F[o + 5];
+      if (Math.abs(q * q - K) > 1e-8) continue;
+      const key = [F[o], F[o + 1], F[o + 2]].map(x => Math.round(x * 1e5)).join(',');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const T = [F[o], F[o + 1], F[o + 2], -F[o + 3], -F[o + 4], -F[o + 5]];   // 同一条直线, 反方向
+      let best = Infinity, bpl = null, bg = -1, br = null;
+      for (const [pl, r] of live) {
+        if (pl === cpl) continue;
+        for (const g2 of r.gens) {
+          const p = 6 * g2, G = pl.F;
+          if (G[p + 3] * T[3] + G[p + 4] * T[4] + G[p + 5] * T[5] < cosTol) continue;
+          const d = Math.hypot(G[p] - T[0], G[p + 1] - T[1], G[p + 2] - T[2]);
+          if (d < best) { best = d; bpl = pl; bg = g2; br = r; }
+        }
+      }
+      if (!bpl || best > 0.1 || best < 1e-6) continue;
+      const u0 = bpl.uv[2 * bg], v0 = bpl.uv[2 * bg + 1];
+      const E = solveFrame(P, m, fixedAng, T, u0, v0);
+      if (!E) continue;
+      const dist = Math.hypot(E[0] - u0, E[1] - v0);
+      if (dist < 1e-9 || dist > 4 * Math.PI / 180) continue;
+      const N = Math.max(2, Math.ceil(dist / (0.2 * Math.PI / 180))), uv = [];
+      for (let k = 0; k <= N; k++) uv.push(u0 + (E[0] - u0) * k / N, v0 + (E[1] - v0) * k / N);
+      added.push({ uv, F: framesOf(P, m, fixedAng, uv), runs: [{ reach: br.reach, gens: [...Array(N + 1).keys()] }], bridge: true });
+    }
+  polys.push(...added);
+}
+
+/**
+ * 延伸也归到区: 不可达片的两端若接着可达片 (端点母线与对方某条母线重合, 方向可反 — 焦散换支处就是反的),
+ * 就归到那一片的区域与边号; 两端接着不同的边则从中间分开. 两端都没接上可达片的, 顺着相接的不可达片传过来 (近的优先);
+ * 怎么也接不上的保持未归类 (区域 0, 界面上叫「延伸」).
+ */
+function assignExt(polys) {
+  const runs = [];
+  for (const pl of polys) for (const r of pl.runs) if (!r.dup) runs.push({ pl, r });
+  const cell = 0.01, H = new Map(), ck = (i, j, k) => i + ',' + j + ',' + k;
+  runs.forEach((it, ri) => it.r.gens.forEach(g => {
+    const o = 6 * g, F = it.pl.F, key = ck(Math.floor(F[o] / cell), Math.floor(F[o + 1] / cell), Math.floor(F[o + 2] / cell));
+    if (!H.has(key)) H.set(key, []);
+    H.get(key).push(ri, g);
+  }));
+  const touching = (ri, g) => {                     // 和 runs[ri] 的母线 g 重合的别的片
+    const F = runs[ri].pl.F, o = 6 * g, out = [];
+    const i0 = Math.floor(F[o] / cell), j0 = Math.floor(F[o + 1] / cell), k0 = Math.floor(F[o + 2] / cell);
+    for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) for (let dk = -1; dk <= 1; dk++) {
+      const L = H.get(ck(i0 + di, j0 + dj, k0 + dk));
+      if (!L) continue;
+      for (let t = 0; t < L.length; t += 2) {
+        const rj = L[t];
+        if (rj === ri || out.includes(rj)) continue;
+        const G = runs[rj].pl.F, p = 6 * L[t + 1];
+        if (Math.hypot(G[p] - F[o], G[p + 1] - F[o + 1], G[p + 2] - F[o + 2]) > 1e-6) continue;
+        if (Math.abs(G[p + 3] * F[o + 3] + G[p + 4] * F[o + 4] + G[p + 5] * F[o + 5]) < 1 - 1e-9) continue;
+        out.push(rj);
+      }
+    }
+    return out;
+  };
+  const grp = r => [r.region, r.seg || 0];
+  const nb = new Map(), got = new Map();             // 不可达片之间的相接; 已归类的片 → [区, 边]
+  for (let ri = 0; ri < runs.length; ri++) {
+    const { pl, r } = runs[ri];
+    if (r.reach) continue;
+    const ends = [r.gens[0], r.gens[r.gens.length - 1]].map(g => {
+      let hit = null;
+      for (const rj of touching(ri, g)) {
+        const r2 = runs[rj].r;
+        if (r2.reach) { if (r2.region && (!hit || runs[rj].pl === pl)) hit = grp(r2); }
+        else { if (!nb.has(ri)) nb.set(ri, new Set()); if (!nb.has(rj)) nb.set(rj, new Set()); nb.get(ri).add(rj); nb.get(rj).add(ri); }
+      }
+      return hit;
+    });
+    const [a, b] = ends;
+    if (a && b && (a[0] !== b[0] || a[1] !== b[1]) && r.gens.length > 2) {
+      const mid = r.gens.length >> 1, k = pl.runs.indexOf(r);
+      const r1 = { reach: false, gens: r.gens.slice(0, mid + 1), region: a[0], seg: a[1] };
+      const r2 = { reach: false, gens: r.gens.slice(mid), region: b[0], seg: b[1] };
+      pl.runs.splice(k, 1, r1, r2);
+      got.set(ri, a);
+    } else if (a || b) {
+      const gr = a || b;
+      r.region = gr[0]; r.seg = gr[1];
+      got.set(ri, gr);
+    }
+  }
+  let front = [...got.keys()];                       // 顺着相接的不可达片往外传
+  while (front.length) {
+    const next = [];
+    for (const ri of front)
+      for (const rj of nb.get(ri) || []) {
+        if (got.has(rj)) continue;
+        const gr = got.get(ri);
+        runs[rj].r.region = gr[0]; runs[rj].r.seg = gr[1];
+        got.set(rj, gr); next.push(rj);
+      }
+    front = next;
+  }
 }
 
 /** 2DOF: 某条边界 (已在 ruledPrepare 里切好片、编好号) 的网格. 返回 { pieces: [{ reach, pos, nrm, idx, ext, region, loop, nLoops, seg }] } */

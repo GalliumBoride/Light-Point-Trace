@@ -22,8 +22,9 @@ const hex = c => (c[0] << 16) | (c[1] << 8) | c[2];
 // 球内的部分排在球壳之前 (透过球壳看, 被染色); 球外的部分排在球面上的点和线之后、做深度测试 —
 // 挡在线前面的那层会盖在线上, 线前面的曲面不会盖住线. 不透明度拉到 100% 的部分改成真正不透明 (写深度, 挡住后面的一切).
 export const RULED_REACH = [50, 120, 200], RULED_UNREACH = [150, 80, 80];
-/** 直纹曲面一组片的键: 光路|边界#R区域号.边号 (可达; 1DOF 边号 0) 或 #E (延伸); 界面按它开关、加亮 */
-export const ruledGroupKey = (prName, famName, pc) => `${prName}|${famName}#${pc.reach ? 'R' + pc.region + '.' + (pc.seg || 0) : 'E'}`;
+/** 直纹曲面一组片的键: 光路|边界#R区域号.边号 (可达; 1DOF 边号 0), #E区域号.边号 (接在那一段后面的延伸) 或 #E (没归到区的延伸); 界面按它开关、加亮 */
+export const ruledGroupKey = (prName, famName, pc) =>
+  `${prName}|${famName}#${pc.reach ? 'R' + pc.region + '.' + (pc.seg || 0) : pc.region ? 'E' + pc.region + '.' + (pc.seg || 0) : 'E'}`;
 // 明暗: 顶点法向由 Worker 按直纹曲面本身算, 不靠三角形平均. 沿一条母线法向 N(t) = A + t·B 是 t 的一次式,
 // 顶点上给的是没归一化的 N, 这里也不归一化、不翻面, 光栅化的线性插值就正好是每个像素的真法向;
 // 到片元里再归一化, 取 |N·视线| (正反面一样亮). 腰点附近 (分布参数 → 0) 法向在很短一段母线上转半圈,

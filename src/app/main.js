@@ -608,14 +608,15 @@ function ensureRuled() {
 // 片的开关与加亮: 存在这次结果上 (换光路 / 重算就重置)
 const ruledHide = () => (R.ruledHide || (R.ruledHide = new Set()));
 function setRuledHover(keys) { if (!R) return; R.ruledHover = new Set(keys); requestRender(); }
-/** 一条光路一张 (或一条边界一张) 曲面里的片, 按组 (区域 k 的第 j 条边 / 延伸) 归并: [{ g, reach, region, seg, a0, a1 }] */
+/** 一条光路一张 (或一条边界一张) 曲面里的片, 按组 (区域 k 的第 j 条边 / 它的延伸 / 没归到区的延伸) 归并: [{ g, reach, region, seg, a0, a1 }] */
 function ruledGroups(pr, name, data) {
   const out = new Map();
   for (const pc of data.pieces) {
     const g = ruledGroupKey(pr.name, name, pc);
     if (!out.has(g)) out.set(g, { g, reach: pc.reach, region: pc.region, seg: pc.seg || 0, a0: pc.a0, a1: pc.a1 });
   }
-  return [...out.values()].sort((a, b) => (a.reach === b.reach ? a.region - b.region || a.seg - b.seg : a.reach ? -1 : 1));
+  const lone = g => (g.region ? 0 : 1);            // 没归到区的延伸排最后; 每段后面紧跟它的延伸
+  return [...out.values()].sort((a, b) => lone(a) - lone(b) || a.region - b.region || a.seg - b.seg || (a.reach ? 0 : 1) - (b.reach ? 0 : 1));
 }
 function ruledChip(grp, label, title) {
   const keys = Array.isArray(grp) ? grp : [grp];
@@ -661,6 +662,9 @@ function renderRuledPanel() {
   const multi = T.paths.length > 1, th = theme();
   const regLabel = (pr, g) => (multi ? pr.name + ' ' : '') + tr('ruled.region', { k: g.region || '?' });
   const segLabel = (pr, g) => (multi ? pr.name + ' ' : '') + tr(g.seg ? 'ruled.edge' : 'ruled.region', { k: g.region || '?', j: g.seg });
+  // 延伸芯片: 归到区的叫「区k·j 延伸」, 没归到的叫「延伸」
+  const extChip = (pr, g, base) => ruledChip(g.g, { text: g.region ? tr('ruled.extOf', { name: base(pr, g) }) : (multi ? pr.name + ' ' : '') + tr('ruled.ext'), ext: true },
+                                             tr(g.region ? 'ruled.extOfTitle' : 'ruled.extTitle'));
   if (!T.params.twoDof) {
     const busy = T.paths.some(p => p.ruled1 === null);
     box.append(el('p', 'ruled-note', tr(busy ? 'ruled.busy' : 'ruled.dof1')));
@@ -668,8 +672,7 @@ function renderRuledPanel() {
     for (const pr of T.paths) {
       if (!pr.ruled1) continue;
       for (const g of ruledGroups(pr, '', pr.ruled1))
-        row.append(ruledChip(g.g, { text: g.reach ? regLabel(pr, g) : (multi ? pr.name + ' ' : '') + tr('ruled.ext'), ext: !g.reach },
-                             g.reach ? tr('ruled.range', { a: g.a0.toFixed(1), b: g.a1.toFixed(1) }) : tr('ruled.extTitle')));
+        row.append(g.reach ? ruledChip(g.g, { text: regLabel(pr, g) }, tr('ruled.range', { a: g.a0.toFixed(1), b: g.a1.toFixed(1) })) : extChip(pr, g, regLabel));
     }
     if (row.childElementCount) box.append(row);
     box.append(el('p', 'ruled-note', tr('ruled.chipHint')));
@@ -684,7 +687,7 @@ function renderRuledPanel() {
       const d = sel.has(famKey(T, pr, fm)) && pr.ruledMap.get(fm.name);
       if (!d) continue;
       for (const g of ruledGroups(pr, fm.name, d)) {
-        if (!g.reach) continue;
+        if (!g.region) continue;                       // 区域芯片连同归到这块区域的延伸一起开关
         const rk = pr.name + '#' + g.region;
         if (!regions.has(rk)) regions.set(rk, { pr, g: { ...g, seg: 0 }, keys: [] });
         regions.get(rk).keys.push(g.g);
@@ -719,7 +722,7 @@ function renderRuledPanel() {
       if (sel.has(key) && d) {
         const chips = el('div', 'ruled-chips');
         for (const g of ruledGroups(pr, fm.name, d))
-          chips.append(ruledChip(g.g, { text: g.reach ? segLabel(pr, g) : tr('ruled.ext'), ext: !g.reach }, g.reach ? tr('ruled.edgeTitle') : tr('ruled.extTitle')));
+          chips.append(g.reach ? ruledChip(g.g, { text: segLabel(pr, g) }, tr('ruled.edgeTitle')) : extChip(pr, g, segLabel));
         if (!d.pieces.length) chips.append(el('small', '', tr('ruled.none')));
         box.append(chips);
       }
