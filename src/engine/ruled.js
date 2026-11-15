@@ -388,9 +388,13 @@ export function ruledPrepare(P, m, fixedAng, lines, ori, perX, perY, causticName
   };
   const endUV0 = it => [it.r.gens[0], it.r.gens[it.r.gens.length - 1]].map(g => [it.pl.uv[2 * g], it.pl.uv[2 * g + 1]]);
   const cau = all.filter(it => it.name === causticName);
+  // 碰到 = 片端落在另一片的线上, 或两片在中间交叉 (焦散常有 X 形交叉, 两条各自笔直穿过, 端点都不在交叉处)
   const touchUV = (it, jt) => {
     for (const p of endUV0(it))
       for (const g of jt.r.gens) if (near20(p[0], p[1], jt.pl.uv[2 * g], jt.pl.uv[2 * g + 1]) < tolD * tolD) return true;
+    for (const g of it.r.gens)
+      for (const h of jt.r.gens)
+        if (near20(it.pl.uv[2 * g], it.pl.uv[2 * g + 1], jt.pl.uv[2 * h], jt.pl.uv[2 * h + 1]) < tolD * tolD) return true;
     return false;
   };
   for (const it of cau)

@@ -751,8 +751,132 @@ export function traceContours(F, SCs, SWs, perX, perY, refine = null, evalF = nu
     }
     result.push(ct);
   }
-  if (evalF !== null) continueOpenEnds(result, SCs, SWs, perX, perY, evalF);
+  if (evalF !== null) {
+    cutFakeCaps(result, dxg, dyg, evalF);
+    continueOpenEnds(result, SCs, SWs, perX, perY, evalF);
+  }
   return result;
+}
+
+// 从 (x, y) 沿 (tx, ty) 在 F = 0 上走 (预测-校正, 同 continueOpenEnds) 至多 n 步, 返回走过的点 (含起点)
+function probeWalk(evalF, x, y, tx, ty, step, eps, n) {
+  let cx = x, cy = y;
+  const path = [[x, y]];
+  for (let st = 0; st < n; st++) {
+    const gx = (evalF(cx + eps, cy) - evalF(cx - eps, cy)) / (2 * eps);
+    const gy = (evalF(cx, cy + eps) - evalF(cx, cy - eps)) / (2 * eps);
+    const gl = Math.sqrt(gx * gx + gy * gy);
+    if (!(gl > 1e-10)) break;
+    let ux = -gy / gl, uy = gx / gl;
+    if (ux * tx + uy * ty < 0) { ux = -ux; uy = -uy; }
+    let qx = cx + ux * step, qy = cy + uy * step, bad = false;
+    for (let it = 0; it < 4; it++) {
+      const f = evalF(qx, qy);
+      if (Number.isNaN(f)) { bad = true; break; }
+      const hgx = (evalF(qx + eps, qy) - evalF(qx - eps, qy)) / (2 * eps);
+      const hgy = (evalF(qx, qy + eps) - evalF(qx, qy - eps)) / (2 * eps);
+      const hg2 = hgx * hgx + hgy * hgy;
+      if (!(hg2 > 1e-20)) { bad = true; break; }
+      qx -= f * hgx / hg2; qy -= f * hgy / hg2;
+    }
+    if (bad) break;
+    const fq = evalF(qx, qy);
+    if (Number.isNaN(fq) || Math.abs(fq) > 0.5 * step * gl) break;
+    const sx = qx - cx, sy = qy - cy, sl = Math.sqrt(sx * sx + sy * sy);
+    if (!(sl > 1e-15) || sl > 3 * step || sx * tx + sy * ty < 0.5 * sl) break;   // 停滞 / 跳飞 / 拐回去了
+    cx = qx; cy = qy; tx = sx / sl; ty = sy / sl;
+    path.push([cx, cy]);
+  }
+  return path;
+}
+
+// 点到折线的距离
+function distToPath(p, path) {
+  let best = Infinity;
+  for (let i = 0; i + 1 < path.length; i++) {
+    const ax = path[i][0], ay = path[i][1], dx = path[i + 1][0] - ax, dy = path[i + 1][1] - ay, dd = dx * dx + dy * dy;
+    const t = dd > 0 ? Math.max(0, Math.min(1, ((p[0] - ax) * dx + (p[1] - ay) * dy) / dd)) : 0;
+    best = Math.min(best, Math.hypot(p[0] - ax - t * dx, p[1] - ay - t * dy));
+  }
+  return path.length === 1 ? Math.hypot(p[0] - path[0][0], p[1] - path[0][1]) : best;
+}
+
+// 假帽: 两支贴得比一个胞元还近的细条 (F 在两支之间只有很浅的一个极值), 网格在还分得清的最后一个胞元里
+// 把它"封口" — 链顺着一支走上来, 一两段之内掉头沿另一支回去, 封口那一段是横跨两支的弦.
+// 判别: 段 A→B (1–2 段) 前后两段反向 (夹角 > 120°) 时, 从 A 沿进来的方向用精确函数往前走 (每步半个胞元, 走到比 B 还远三步):
+//   走得通、确实往前走了、而且路上没经过 B (B 在另一支上, 不是这一支后面的点); 从 B 沿出去方向的反向走, 也没经过 A —
+//   两头都成立才是横跨两支的假封口 (掉头处常有相邻两三个候选, 只有真正跨支的那一段两头都过得去).
+//   是假封口就把链在 A、B 之间剪开, 两个断头交给 continueOpenEnds 沿各自那一支续走.
+// 真正的尖头 (曲线确实在这里拐回) 走不出去 / 绕回来经过另一端, 保留.
+function cutFakeCaps(chains, dxg, dyg, evalF) {
+  const step = 0.5 * Math.min(dxg, dyg), eps = step * 0.05;
+  const out = [];
+  // 从 P0 沿 (tx, ty) 走: 走得够远 (比到 other 还远三步)、确实往前走了、路上没经过 other
+  const goesPast = (P0, tx, ty, other) => {
+    const n = 3 + Math.ceil(Math.hypot(other[0] - P0[0], other[1] - P0[1]) / step);
+    const path = probeWalk(evalF, P0[0], P0[1], tx, ty, step, eps, n);
+    if (path.length < n + 1) return false;
+    const E = path[path.length - 1];
+    if ((E[0] - P0[0]) * tx + (E[1] - P0[1]) * ty < 2 * step) return false;
+    return distToPath(other, path) > 0.3 * step;
+  };
+  // 段 P→Q 是否横跨两支: 从 P 沿 F = 0 朝 Q 的方向走, 走过 Q 的高度还没碰到 Q, 反过来从 Q 朝 P 走也碰不到 P
+  const misses = (P, Q) => {
+    const dx = Q[0] - P[0], dy = Q[1] - P[1], L = Math.sqrt(dx * dx + dy * dy);
+    if (!(L > 0.5 * step)) return false;
+    const n = 2 + Math.ceil(L / step), path = probeWalk(evalF, P[0], P[1], dx / L, dy / L, step, eps, n);
+    return path.length === n + 1 && distToPath(Q, path) > 0.3 * step;
+  };
+  const crossesBranches = (P, Q) => misses(P, Q) && misses(Q, P);
+  for (const c of chains) {
+    const closed = c.closed;
+    // 闭合链按环处理 (去掉重复的首点), 封口可能正好跨在首尾接缝上. 绕环面一圈的环, 末点 = 首点 + 一个周期:
+    // 越过首尾时补上这个平移 (W), 坐标保持展开连续
+    const pts = closed ? c.pts.slice(0, -1) : c.pts, n = pts.length;
+    const W = closed ? [c.pts[n][0] - c.pts[0][0], c.pts[n][1] - c.pts[0][1]] : [0, 0];
+    const at = i => {
+      if (!closed) return pts[i];
+      const k = Math.floor(i / n), r = i - k * n;
+      return k ? [pts[r][0] + k * W[0], pts[r][1] + k * W[1]] : pts[r];
+    };
+    const lo = closed ? 0 : 1, hi = closed ? n : n - 2;     // 候选封口起点 i 的范围
+    const cut = new Set();                         // 被剪掉的段 (起点序号, 闭合链取模)
+    for (let i = lo; i < hi; i++) {
+      for (let k = 1; k <= 2; k++) {
+        if (!closed && i + k + 1 >= n) break;
+        if (closed && k + 2 > n) break;
+        const P0 = at(i - 1), A = at(i), B = at(i + k), P3 = at(i + k + 1);
+        const ax = A[0] - P0[0], ay = A[1] - P0[1], bx = P3[0] - B[0], by = P3[1] - B[1];
+        const la = Math.sqrt(ax * ax + ay * ay), lb = Math.sqrt(bx * bx + by * by);
+        if (!(la > 1e-12 && lb > 1e-12) || ax * bx + ay * by > -0.5 * la * lb) continue;
+        if (!goesPast(A, ax / la, ay / la, B) || !goesPast(B, -bx / lb, -by / lb, A)) continue;
+        for (let j = 0; j < k; j++) cut.add(closed ? (i + j) % n : i + j);
+        i += k;                                      // 跳过封口段
+        break;
+      }
+    }
+    // 开链的头尾两段没有"进来的方向", 掉头判别管不到: 直接看它是不是横跨两支
+    if (!closed && n >= 3) {
+      if (!cut.has(0) && crossesBranches(pts[0], pts[1])) cut.add(0);
+      if (!cut.has(n - 2) && crossesBranches(pts[n - 2], pts[n - 1])) cut.add(n - 2);
+    }
+    if (!cut.size) { out.push(c); continue; }
+    // 按剪口把链拆开 (闭合链从某个剪口后面起绕一圈)
+    const pieces = [];
+    const s0 = closed ? [...cut][0] + 1 : 0, m = closed ? n : n - 1;
+    let cur = [at(s0)];
+    for (let t = 0; t < m; t++) {
+      const j = s0 + t;                              // 段 j → j+1 (展开序号; 剪口按模 n 认)
+      if (cut.has(closed ? j % n : j)) { pieces.push(cur); cur = [at(j + 1)]; }
+      else cur.push(at(j + 1));
+    }
+    pieces.push(cur);
+    // 剪剩的碎渣 (不到两个胞元长, 例如只围着一个格点的小菱形剩下的两三点) 扔掉: 那一支会由断头续走补上
+    const len = p => { let L = 0; for (let i = 1; i < p.length; i++) L += Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]); return L; };
+    for (const p of pieces) if (p.length >= 2 && len(p) >= 4 * step) out.push({ pts: p, closed: false });
+  }
+  chains.length = 0;
+  for (const c of out) chains.push(c);
 }
 
 // 场的噪声地板: 90 分位幅值 × 1e-6
@@ -788,6 +912,19 @@ function continueOpenEnds(chains, SCs, SWs, perX, perY, evalF) {
   const maxSteps = 3 * Math.max(nS, nW);
   const xLo = SCs[0] - (perX ? Px : 2 * step), xHi = SCs[nS - 1] + (perX ? Px : 2 * step);
   const yLo = SWs[0] - (perY ? Py : 2 * step), yHi = SWs[nW - 1] + (perY ? Py : 2 * step);
+  // 桥接 / 闭合前先验: 两支贴得比一个胞元还近时 (例: 两条焦散以很小的夹角交叉, 交叉点附近),
+  // 走到这一支上, 另一支的链端也在 snap 之内 — 直接接过去就是一根横跨两支的弦.
+  // 所以要求弦贴着曲线: 弦中点到 F = 0 的距离 (|F| / |∇F|) < 弦长的 15%; 不满足就不接, 接着往前走.
+  const chordOk = (cx, cy, qx, qy) => {
+    const dx = qx - cx, dy = qy - cy, len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.25 * step) return true;
+    const mx = cx + 0.5 * dx, my = cy + 0.5 * dy, f = evalF(mx, my);
+    const gx = (evalF(mx + eps, my) - evalF(mx - eps, my)) / (2 * eps);
+    const gy = (evalF(mx, my + eps) - evalF(mx, my - eps)) / (2 * eps);
+    const g = Math.sqrt(gx * gx + gy * gy);
+    if (!Number.isFinite(f) || !(g > 0)) return false;
+    return Math.abs(f) / g < 0.15 * len;
+  };
 
   for (const c of chains) {
     if (c === null || c.closed || c.pts.length < 2) continue;
@@ -836,7 +973,8 @@ function continueOpenEnds(chains, SCs, SWs, perX, perY, evalF) {
           ext.push([cx, cy]);
           const oth = side === 0 ? pts[0] : pts[pts.length - 1];
           const odx = wrap1(cx - oth[0], perX, Px), ody = wrap1(cy - oth[1], perY, Py);
-          if (ext.length > 3 && Math.abs(odx) < snap && Math.abs(ody) < snap) {
+          if (ext.length > 3 && Math.abs(odx) < snap && Math.abs(ody) < snap &&
+              chordOk(cx, cy, cx - odx, cy - ody)) {
             ext.push([cx - odx, cy - ody]);
             closedNow = true; break;
           }
@@ -845,7 +983,8 @@ function continueOpenEnds(chains, SCs, SWs, perX, perY, evalF) {
             for (let oe = 0; oe < 2; oe++) {
               const q2 = oe === 0 ? o.pts[0] : o.pts[o.pts.length - 1];
               const ddx = wrap1(cx - q2[0], perX, Px), ddy = wrap1(cy - q2[1], perY, Py);
-              if (Math.abs(ddx) < snap && Math.abs(ddy) < snap) {
+              if (Math.abs(ddx) < snap && Math.abs(ddy) < snap &&
+                  chordOk(cx, cy, cx - ddx, cy - ddy)) {
                 merged = o; mAtStart = oe === 0;
                 mShX = cx - ddx - q2[0]; mShY = cy - ddy - q2[1];
                 break;
