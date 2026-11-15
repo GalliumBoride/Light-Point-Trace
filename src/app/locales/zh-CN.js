@@ -262,6 +262,8 @@ export default {
     'ruled.regions': '成立区域:',
     'ruled.regionTitle': '取向平面里这一块成立区域: 它所有边界段扫出的那几片 (跨勾选的各条边界)',
     'ruled.regionTitle1': '这条边界挨着这块成立区域的那几段',
+    'ruled.edge': '区{k}·{j}',
+    'ruled.edgeTitle': '这块成立区域边界上的第 j 段 (这条边界在两个角点之间成立的那一段), 扫出一张单独的曲面; 编号沿区域边界走一圈',
     'ruled.ext': '延伸',
     'ruled.extTitle': '光路不成立的那几段 (形式上的延伸)',
     'ruled.range': '扫描角 {a}° – {b}°',

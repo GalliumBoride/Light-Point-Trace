@@ -608,14 +608,14 @@ function ensureRuled() {
 // 片的开关与加亮: 存在这次结果上 (换光路 / 重算就重置)
 const ruledHide = () => (R.ruledHide || (R.ruledHide = new Set()));
 function setRuledHover(keys) { if (!R) return; R.ruledHover = new Set(keys); requestRender(); }
-/** 一条光路一张 (或一条边界一张) 曲面里的片, 按组 (区域 k / 延伸) 归并: [{ g, reach, region, a0, a1 }] */
+/** 一条光路一张 (或一条边界一张) 曲面里的片, 按组 (区域 k 的第 j 条边 / 延伸) 归并: [{ g, reach, region, seg, a0, a1 }] */
 function ruledGroups(pr, name, data) {
   const out = new Map();
   for (const pc of data.pieces) {
     const g = ruledGroupKey(pr.name, name, pc);
-    if (!out.has(g)) out.set(g, { g, reach: pc.reach, region: pc.region, a0: pc.a0, a1: pc.a1 });
+    if (!out.has(g)) out.set(g, { g, reach: pc.reach, region: pc.region, seg: pc.seg || 0, a0: pc.a0, a1: pc.a1 });
   }
-  return [...out.values()].sort((a, b) => (a.reach === b.reach ? a.region - b.region : a.reach ? -1 : 1));
+  return [...out.values()].sort((a, b) => (a.reach === b.reach ? a.region - b.region || a.seg - b.seg : a.reach ? -1 : 1));
 }
 function ruledChip(grp, label, title) {
   const keys = Array.isArray(grp) ? grp : [grp];
@@ -660,6 +660,7 @@ function renderRuledPanel() {
   });
   const multi = T.paths.length > 1, th = theme();
   const regLabel = (pr, g) => (multi ? pr.name + ' ' : '') + tr('ruled.region', { k: g.region || '?' });
+  const segLabel = (pr, g) => (multi ? pr.name + ' ' : '') + tr(g.seg ? 'ruled.edge' : 'ruled.region', { k: g.region || '?', j: g.seg });
   if (!T.params.twoDof) {
     const busy = T.paths.some(p => p.ruled1 === null);
     box.append(el('p', 'ruled-note', tr(busy ? 'ruled.busy' : 'ruled.dof1')));
@@ -685,7 +686,7 @@ function renderRuledPanel() {
       for (const g of ruledGroups(pr, fm.name, d)) {
         if (!g.reach) continue;
         const rk = pr.name + '#' + g.region;
-        if (!regions.has(rk)) regions.set(rk, { pr, g, keys: [] });
+        if (!regions.has(rk)) regions.set(rk, { pr, g: { ...g, seg: 0 }, keys: [] });
         regions.get(rk).keys.push(g.g);
       }
     }
@@ -718,7 +719,7 @@ function renderRuledPanel() {
       if (sel.has(key) && d) {
         const chips = el('div', 'ruled-chips');
         for (const g of ruledGroups(pr, fm.name, d))
-          chips.append(ruledChip(g.g, { text: g.reach ? regLabel(pr, g) : tr('ruled.ext'), ext: !g.reach }, g.reach ? tr('ruled.regionTitle1') : tr('ruled.extTitle')));
+          chips.append(ruledChip(g.g, { text: g.reach ? segLabel(pr, g) : tr('ruled.ext'), ext: !g.reach }, g.reach ? tr('ruled.edgeTitle') : tr('ruled.extTitle')));
         if (!d.pieces.length) chips.append(el('small', '', tr('ruled.none')));
         box.append(chips);
       }

@@ -13,7 +13,7 @@ import { computeIso } from './engine/iso.js';
 import { isCollapsed, isCausticEp } from './engine/collapse.js';
 import { mirrorPath } from './engine/mirror.js';
 import { famSpec, analyzeDof3, packDof3, mcDof3, spaceData, liftData } from './engine/dof3.js';
-import { ruled1, ruledFam, regionLabeler } from './engine/ruled.js';
+import { ruled1, ruledPrepare, ruledFamPieces } from './engine/ruled.js';
 
 let S = null;   // { pr: { P, faces, name, ori, eps }, om, fx, cfg }
 let S3 = null;  // 三自由度: { P, F, A, cfg }
@@ -192,9 +192,12 @@ self.onmessage = e => {
       if (!pr.lines) return post({ type: 'reply', rid: m.rid, data: null });
       post({ type: 'reply', rid: m.rid, data: computeLift(pr.P, om, fx, pr.ori.fams, pr.lines, pr.eps, { ref: m.ref }) });
     } else if (m.type === 'ruled') {           // 2DOF: 某条边界 (连同不成立的延伸部分) 扫出的直纹曲面
-      const fl = pr.lines && pr.lines.get(m.fam);
-      if (fl && !S.labeler) { const ax = axesMeta(om); S.labeler = regionLabeler(pr.ori, ax.perX, ax.perY); }   // 成立区域的连通块, 每条光路算一次
-      post({ type: 'reply', rid: m.rid, data: fl ? ruledFam(pr.P, om, fx, fl, S.labeler) : null });
+      if (!pr.lines || !pr.lines.has(m.fam)) return post({ type: 'reply', rid: m.rid, data: null });
+      if (!S.ruledPrep) {                       // 所有边界一起切片、编区域与边界环, 每条光路一次
+        const ax = axesMeta(om);
+        S.ruledPrep = ruledPrepare(pr.P, om, fx, pr.lines, pr.ori, ax.perX, ax.perY);
+      }
+      post({ type: 'reply', rid: m.rid, data: ruledFamPieces(S.ruledPrep, m.fam) });
     } else if (m.type === 'iso') {
       if (!pr.lines) return post({ type: 'reply', rid: m.rid, data: null });
       if (pr.collapsed) return post({ type: 'reply', rid: m.rid, data: { status: 'degenerate', curves: [], levels: [] } });

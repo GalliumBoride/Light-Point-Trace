@@ -262,6 +262,8 @@ export default {
     'ruled.regions': 'Valid regions:',
     'ruled.regionTitle': 'This valid region of the orientation plane: the pieces swept by all its boundary segments (across the ticked boundaries)',
     'ruled.regionTitle1': 'The segments of this boundary next to this valid region',
+    'ruled.edge': 'R{k}.{j}',
+    'ruled.edgeTitle': 'Edge j of this valid region (this boundary between two corners), sweeping a surface of its own; numbered once round the region',
     'ruled.ext': 'ext.',
     'ruled.extTitle': 'The segments where the path is not valid (formal extension)',
     'ruled.range': 'sweep angle {a}° – {b}°',

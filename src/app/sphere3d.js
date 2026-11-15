@@ -22,23 +22,25 @@ const hex = c => (c[0] << 16) | (c[1] << 8) | c[2];
 // 球内的部分排在球壳之前 (透过球壳看, 被染色); 球外的部分排在球面上的点和线之后、做深度测试 —
 // 挡在线前面的那层会盖在线上, 线前面的曲面不会盖住线. 不透明度拉到 100% 的部分改成真正不透明 (写深度, 挡住后面的一切).
 export const RULED_REACH = [50, 120, 200], RULED_UNREACH = [150, 80, 80];
-/** 直纹曲面一组片的键: 光路|边界#R区域号 (可达) 或 #E (延伸); 界面按它开关、加亮 */
-export const ruledGroupKey = (prName, famName, pc) => `${prName}|${famName}#${pc.reach ? 'R' + pc.region : 'E'}`;
-// 明暗用每个片元的平面法向 (屏幕导数), 不用顶点法向: 直纹曲面常常折回自己, 相邻三角形绕向相反, 平均出来的顶点法向会抵消成 0 (一道道暗纹).
+/** 直纹曲面一组片的键: 光路|边界#R区域号.边号 (可达; 1DOF 边号 0) 或 #E (延伸); 界面按它开关、加亮 */
+export const ruledGroupKey = (prName, famName, pc) => `${prName}|${famName}#${pc.reach ? 'R' + pc.region + '.' + (pc.seg || 0) : 'E'}`;
+// 明暗: 顶点法向由 Worker 按直纹曲面本身算 (∂L/∂s × e), 不靠三角形平均; 正负号在顶点着色器里翻成朝向镜头,
+// 所以曲面折回自己的地方相邻法向不会抵消, 放大后也看不到一条条的母线条纹.
 const RULED_VS = `attribute vec4 rgba;
-varying vec4 vC; varying vec3 vW;
+varying vec4 vC; varying vec3 vW; varying vec3 vN;
 void main() {
   vC = rgba;
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vW = wp.xyz;
+  vec3 n = normalize(mat3(modelMatrix) * normal);
+  vN = dot(n, cameraPosition - wp.xyz) < 0.0 ? -n : n;
   gl_Position = projectionMatrix * viewMatrix * wp;
 }`;
 const RULED_FS = `uniform float uOut;
-varying vec4 vC; varying vec3 vW;
+varying vec4 vC; varying vec3 vW; varying vec3 vN;
 void main() {
   if ((length(vW) - 1.0) * uOut < 0.0) discard;
-  vec3 n = normalize(cross(dFdx(vW), dFdy(vW)));
-  float d = abs(dot(n, normalize(cameraPosition - vW)));  // 头灯: 正对镜头最亮, 侧着变暗 (双面一样)
+  float d = abs(dot(normalize(vN), normalize(cameraPosition - vW)));   // 头灯: 正对镜头最亮, 侧着变暗
   gl_FragColor = vec4(vC.rgb * (0.62 + 0.45 * d), vC.a);
 }`;
 
@@ -333,7 +335,7 @@ export class SphereView {
       if (o.material) { o.material.dispose(); this.lineMats = this.lineMats.filter(m => m !== o.material); }
     }
     this.ruledObjs = [];
-    const T = { pos: [], col: [], idx: [] }, O = { pos: [], col: [], idx: [] }, ext = new Map();
+    const T = { pos: [], nrm: [], col: [], idx: [] }, O = { pos: [], nrm: [], col: [], idx: [] }, ext = new Map();
     for (const e of ents) {
       const { pc } = e, h = hov.has(e.g), a0 = A[pc.reach ? 0 : 1];
       const a = h ? Math.min(0.92, Math.max(a0, 0.3) + 0.3) : a0;
@@ -341,7 +343,10 @@ export class SphereView {
       const tg = a >= 0.999 ? O : T, n = pc.pos.length / 3;
       for (const sy of sym ? [1, -1] : [1]) {
         const base = tg.pos.length / 3;
-        for (let i = 0; i < n; i++) { tg.pos.push(pc.pos[3 * i], sy * pc.pos[3 * i + 1], pc.pos[3 * i + 2]); tg.col.push(c[0], c[1], c[2], a); }
+        for (let i = 0; i < n; i++) {
+          tg.pos.push(pc.pos[3 * i], sy * pc.pos[3 * i + 1], pc.pos[3 * i + 2]); tg.col.push(c[0], c[1], c[2], a);
+          tg.nrm.push(pc.nrm[3 * i], sy * pc.nrm[3 * i + 1], pc.nrm[3 * i + 2]);
+        }
         for (let i = 0; i < pc.idx.length; i++) tg.idx.push(base + pc.idx[i]);
         if (!pc.reach && pc.ext.length) {
           const key = e.col.join(','), L = ext.get(key) || ext.set(key, { col: e.col, pos: [] }).get(key);
@@ -355,6 +360,7 @@ export class SphereView {
       const g = new THREE.BufferGeometry(), idx = Uint32Array.from(S.idx);
       g.setAttribute('position', new THREE.Float32BufferAttribute(S.pos, 3));
       g.setAttribute('rgba', new THREE.Float32BufferAttribute(S.col, 4));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute(S.nrm, 3));
       g.setIndex(new THREE.BufferAttribute(idx, 1));
       if (transparent) {                                  // 排序用: 每个三角形的重心与原始顶点序号
         const nt = idx.length / 3, cent = new Float32Array(3 * nt), p = S.pos;
