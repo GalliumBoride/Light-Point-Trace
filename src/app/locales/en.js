@@ -248,6 +248,15 @@ export default {
     'sph.side': 'Side',
     'sph.sideTitle': 'Look from the side, level with the horizon',
     'sph.q': 'What is the sphere view',
+    'sph.ruled': 'Ruled surface',
+    'sph.ruledTitle': 'Draw the ruled surface swept by each orientation’s exit line (the light point moving along the exit-face normal); where it meets the sphere is the arc',
+    'sph.ruledQ': 'What is the ruled surface',
+    'ruled.reach': 'path valid (reachable)',
+    'ruled.unreach': 'not valid (extension)',
+    'ruled.dof1': '1DOF: the surface for one full turn of the sweep angle. The faint line on the sphere is where the red part meets it: the arc’s extension.',
+    'ruled.busy': 'Computing ruled surface …',
+    'ruled.pick': 'Tick the boundaries to draw ruled surfaces for (extensions included):',
+    'ruled.busyShort': 'computing',
     'sph.observer': 'Observer',
 
     'hint.sky': 'Drag to rotate · scroll to zoom',
@@ -519,6 +528,17 @@ export default {
         'The sky view uses 400,000 orientations; the orientation plane, 120,000. Dot density roughly tracks brightness, but reflectance (Fresnel coefficients) is not included.',
         'MC stands for Monte Carlo (random sampling). It only paints the background; the boundary lines and endpoints are solved exactly and don’t depend on these dots.',
       ],
+    },
+    ruled: {
+      name: 'Ruled surface',
+      short: 'The exit refraction drawn out: each orientation is a straight line (the light point inside the crystal moving along the exit-face normal), and as the orientation changes these lines sweep a surface. Where it meets the celestial sphere is the arc.',
+      body: [
+        'The question: why the arc has this shape, where it breaks off, and where its extension goes. In the light-point method the exit refraction moves the light point along the exit-face normal from the n-sphere (radius n) to the celestial sphere (radius 1). So each orientation is one straight line (a generator); the light point on it, inside the crystal, is the directrix point.',
+        '1DOF (plate, Parry): one full turn of the sweep angle sweeps one surface. 2DOF (column, Lowitz): orientations have two angles; each boundary in the orientation plane is a run of orientations and sweeps a surface too. Tick which boundaries to draw in the small panel at the bottom left.',
+        'Blue = the light path is valid for these orientations (reachable); red = not valid (unreachable), a formal extension. Where the red part meets the sphere is the arc’s extension, drawn as a faint line of the same colour on the sphere.',
+        'Drawn as in the “Ruled Surface Analysis” form of IceHaloSimulatorPrototype: generators over t ∈ [−3, 3], blue 55% / red 35% translucent, double-sided. The surface reaches beyond the sphere, so the camera pulls back a little when it is turned on.',
+      ],
+      tech: 'L(t) = P + t·n_out, |P| = n;  arc point H = P + t_E·n_out, t_E = −q_E − √(q_E² − K)',
     },
     sphere: {
       name: 'Sphere view',

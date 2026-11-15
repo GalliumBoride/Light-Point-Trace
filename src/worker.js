@@ -1,7 +1,7 @@
 // 计算 Worker. 每条光路分两个 Worker 并行:
 //   part='sky' : 天球边界点 (Trace2D / Parry) + MC                       → sky, done
 //   part='ori' : 取向平面 601² → 末端点 → 连线 (仅 2DOF)               → ori, eps, lines, done
-// ori Worker 保留该光路状态, 供点云 / 细化视窗 / 位置查看 / 3D 抬升 / 左右镜像 / 等光强线按需请求 (cloud / refine / probe / lift / mirror / iso → reply).
+// ori Worker 保留该光路状态, 供点云 / 细化视窗 / 位置查看 / 3D 抬升 / 左右镜像 / 等光强线 / 直纹曲面按需请求 (cloud / refine / probe / lift / mirror / iso / ruled → reply).
 // 退化光路 (整块姿态压成天上一条线, J ≡ 0) 不追踪焦散: 那里只有舍入噪声 (见 engine/collapse.js).
 
 import { setConfig, computeSky, computeOri, computeEps, computeLines } from './engine/pipeline.js';
@@ -13,6 +13,7 @@ import { computeIso } from './engine/iso.js';
 import { isCollapsed, isCausticEp } from './engine/collapse.js';
 import { mirrorPath } from './engine/mirror.js';
 import { famSpec, analyzeDof3, packDof3, mcDof3, spaceData, liftData } from './engine/dof3.js';
+import { ruled1, ruledFam } from './engine/ruled.js';
 
 let S = null;   // { pr: { P, faces, name, ori, eps }, om, fx, cfg }
 let S3 = null;  // 三自由度: { P, F, A, cfg }
@@ -157,6 +158,13 @@ self.onmessage = e => {
       const fixedV = m.modeIdx === 2 ? ((m.fixedDeg % 360) + 360) % 360 * Math.PI / 180 : 0;
       return post({ type: 'reply', rid: m.rid, data: computeLift1(new PathCtx(m.faces), om, fx, fixedV) });
     }
+    if (m.type === 'ruled1') {                   // 1DOF 的直纹曲面: 扫描角转一圈, 同上不依赖已算的状态
+      setConfig(m.cfg);
+      const { om, fx } = modeParams(m.modeIdx, m.fixedDeg);
+      const fixedV = m.modeIdx === 2 ? ((m.fixedDeg % 360) + 360) % 360 * Math.PI / 180 : 0;
+      const P = new PathCtx(m.faces);
+      return post({ type: 'reply', rid: m.rid, data: ruled1(P, om, fx, fixedV, (u, v) => validAt(P, om, fx, u, v, 0)) });
+    }
     if (m.type === 'space3' || m.type === 'lift3') {    // 三自由度的取向空间 / 抬升: 按需算
       if (!S3) return post({ type: 'reply', rid: m.rid, data: null });
       setConfig(S3.cfg);
@@ -183,6 +191,9 @@ self.onmessage = e => {
     } else if (m.type === 'lift') {
       if (!pr.lines) return post({ type: 'reply', rid: m.rid, data: null });
       post({ type: 'reply', rid: m.rid, data: computeLift(pr.P, om, fx, pr.ori.fams, pr.lines, pr.eps, { ref: m.ref }) });
+    } else if (m.type === 'ruled') {           // 2DOF: 某条边界 (连同不成立的延伸部分) 扫出的直纹曲面
+      const fl = pr.lines && pr.lines.get(m.fam);
+      post({ type: 'reply', rid: m.rid, data: fl ? ruledFam(pr.P, om, fx, fl) : null });
     } else if (m.type === 'iso') {
       if (!pr.lines) return post({ type: 'reply', rid: m.rid, data: null });
       if (pr.collapsed) return post({ type: 'reply', rid: m.rid, data: { status: 'degenerate', curves: [], levels: [] } });

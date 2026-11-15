@@ -16,6 +16,27 @@ const D2R = Math.PI / 180;
 const rgb = c => `rgb(${c[0]},${c[1]},${c[2]})`;
 const hex = c => (c[0] << 16) | (c[1] << 8) | c[2];
 
+// 直纹曲面 (同「直纹曲面分析」窗体的默认值): 可达 = 蓝 55%, 不可达 = 红 35%.
+// 窗体的画法: 半透明双面, 先背面后正面两遍, 不写深度. 这里再按半径拆开: 球内的部分排在球壳之前画 (透过球壳看, 被球壳染色),
+// 球外的部分排在球壳之后画 (挡在球前面的不被染色, 绕到球背后的被球壳的深度挡住, 同球背面的线).
+export const RULED_REACH = [50, 120, 200], RULED_UNREACH = [150, 80, 80];
+const RULED_VS = `varying vec3 vN; varying vec3 vV; varying float vR;
+void main() {
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vR = length(wp.xyz);
+  vec4 mv = viewMatrix * wp;
+  vN = normalize(mat3(viewMatrix) * mat3(modelMatrix) * normal);
+  vV = -mv.xyz;
+  gl_Position = projectionMatrix * mv;
+}`;
+const RULED_FS = `uniform vec3 uCol; uniform float uA; uniform float uOut;
+varying vec3 vN; varying vec3 vV; varying float vR;
+void main() {
+  if ((vR - 1.0) * uOut < 0.0) discard;
+  float d = abs(dot(normalize(vN), normalize(vV)));      // 头灯: 正对镜头最亮, 侧着变暗 (双面一样)
+  gl_FragColor = vec4(uCol * (0.62 + 0.45 * d), uA);
+}`;
+
 export class SphereView {
   constructor(canvas, overlay) {
     this.canvas = canvas;
@@ -27,6 +48,8 @@ export class SphereView {
     this.dirty = true;
     this.active = false;
     this.onHover = null;
+    this.ruled = new Map();       // 直纹曲面: 键 → 物体 (setData 时清空)
+    this.clouds = new Map();
   }
 
   _init() {
@@ -39,7 +62,7 @@ export class SphereView {
     cam.up.set(0, 0, 1);
     const ctl = this.controls = new OrbitControls(cam, this.canvas);
     ctl.enableDamping = true; ctl.dampingFactor = 0.09;
-    ctl.minDistance = 1.25; ctl.maxDistance = 9;
+    ctl.minDistance = 1.25; ctl.maxDistance = 18;          // 直纹曲面伸到球外, 要能拉远看全
     ctl.addEventListener('change', () => { this.dirty = true; });
     ctl.addEventListener('start', () => { this.tween = null; this.userMoved = true; });
     this.dyn = new THREE.Group();
@@ -251,8 +274,87 @@ export class SphereView {
       }
     });
     this.clouds = new Map();
+    this.ruled = new Map();
     this.layoutKey = null;
     this.layout(V);
+  }
+
+  /**
+   * 直纹曲面: 1DOF 一张 (扫描角转一圈), 2DOF 每条勾选的边界一张 (连同不成立的延伸部分).
+   * 数据由主程序向 Worker 要 (pr.ruled1 / pr.ruledMap), 到了建一份; 同时画这张曲面与天球的延伸弧 (不成立的母线与天球的交点).
+   */
+  _syncRuled(V) {
+    const R = this.R;
+    let state = '';
+    if (R && V.ruled) {
+      const multi = R.paths.length > 1, th = V.theme;
+      R.paths.forEach((pr, k) => {
+        const list = R.params.twoDof
+          ? (pr.ori ? pr.ori.fams.map((fm, fi) => ({ name: fm.name, fi, on: V.ruledSel.has(V.famKey(pr, fm.name)) })).filter(x => x.on) : [])
+          : [{ name: '', fi: 0 }];
+        for (const { name, fi } of list) {
+          const data = R.params.twoDof ? pr.ruledMap && pr.ruledMap.get(name) : pr.ruled1;
+          if (!data) continue;
+          const key = pr.name + '|' + name;
+          state += key + ';';
+          if (this.ruled.has(key)) continue;
+          const col = multi ? th.pathcol[k % th.pathcol.length] : th.palette[fi % th.palette.length];
+          this.ruled.set(key, this._buildRuled(data, col, V.sym));
+        }
+      });
+    }
+    // 显示开关与不透明度 (随时可调, 不用重建): 延伸弧跟着不可达部分一起开关
+    const show = V.ruledShow || [true, true], alpha = V.ruledA || [0.55, 0.35];
+    for (const [key, objs] of this.ruled)
+      for (const o of objs) {
+        const j = o.userData.kind === 'reach' ? 0 : 1;
+        o.visible = state.includes(key + ';') && show[j];
+        if (o.userData.kind !== 'ext') o.material.uniforms.uA.value = alpha[j];
+      }
+    return state;
+  }
+
+  _ruledMat(col, alpha, side, outside) {
+    return new THREE.ShaderMaterial({
+      vertexShader: RULED_VS, fragmentShader: RULED_FS, side, transparent: true, depthWrite: false, depthTest: true,
+      uniforms: { uCol: { value: new THREE.Vector3(col[0] / 255, col[1] / 255, col[2] / 255) }, uA: { value: alpha }, uOut: { value: outside ? 1 : -1 } },
+    });
+  }
+
+  _buildRuled(data, extCol, sym) {
+    const objs = [];
+    for (const [part, col, a] of [[data.unreach, RULED_UNREACH, 0.35], [data.reach, RULED_REACH, 0.55]]) {
+      if (!part || !part.idx.length) continue;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(part.pos, 3));
+      g.setIndex(new THREE.BufferAttribute(part.idx, 1));
+      g.computeVertexNormals();
+      for (const sy of sym ? [1, -1] : [1])
+        for (const [outside, side, ro] of [[false, THREE.BackSide, 0.5], [false, THREE.FrontSide, 0.55], [true, THREE.BackSide, 1.5], [true, THREE.FrontSide, 1.55]]) {
+          const m = new THREE.Mesh(g, this._ruledMat(col, a, side, outside));
+          m.renderOrder = ro; m.frustumCulled = false;
+          m.userData.kind = part === data.reach ? 'reach' : 'unreach';
+          if (sy < 0) m.scale.y = -1;
+          this.dyn.add(m); objs.push(m);
+        }
+    }
+    if (data.ext && data.ext.length)
+      for (const sy of sym ? [1, -1] : [1]) {
+        const pos = new Float32Array(data.ext.length);
+        for (let i = 0; i < pos.length; i += 3) { pos[i] = RS * data.ext[i]; pos[i + 1] = sy * RS * data.ext[i + 1]; pos[i + 2] = RS * data.ext[i + 2]; }
+        for (const o of [this._seg(pos, extCol, 1.3, { opacity: 0.5 }), this._seg(pos, extCol, 0.8, { ghost: true, opacity: 0.14 })]) {
+          o.userData.kind = 'ext';
+          this.dyn.add(o); objs.push(o);
+        }
+      }
+    return objs;
+  }
+
+  /** 打开直纹曲面时把镜头拉远一些 (母线伸到天球外 3 个单位), 关掉时回到只装天球 (用户没动过镜头时). */
+  setRuledFit(on) {
+    if (this.ruledFit === on) return;
+    this.ruledFit = on;
+    if (this.gl) this.goView(this.lastView || 'oblique', !this.R);
   }
 
   /** 高亮的族要画「满足侧」点云: 没有就请主程序向 Worker 要, 到了建一份 (同天空视图). */
@@ -294,7 +396,9 @@ export class SphereView {
     if (!this.gl) return;
     this.V = V;
     const cloudState = this._syncClouds(V);
-    const lk = [V.lineW, V.lines, V.arcs, V.mc, V.hlFull, V.iso, [...V.checked].join('|'), cloudState].join(',');
+    const ruledState = this._syncRuled(V);
+    const lk = [V.lineW, V.lines, V.arcs, V.mc, V.hlFull, V.iso, [...V.checked].join('|'), cloudState, ruledState].join(',');
+    if (V.ruled) this.dirty = true;                       // 不透明度滑块: 只改了 uniform, 也要重画
     if (lk !== this.layoutKey) {
       this.layoutKey = lk;
       for (const it of this.items) {
@@ -321,7 +425,7 @@ export class SphereView {
   /** 整个球 (加一圈余量) 正好装进画面的镜头距离. */
   _fitDist() {
     const cam = this.camera, vf = cam.fov * D2R, hf = 2 * Math.atan(Math.tan(vf / 2) * cam.aspect);
-    return 1.18 / Math.sin(Math.min(vf, hf) / 2);
+    return (this.ruledFit ? 3.2 : 1.18) / Math.sin(Math.min(vf, hf) / 2);
   }
   goView(name, instant) {
     const h = this.A ? Math.asin(this.A[2]) / D2R : 10;

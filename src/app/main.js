@@ -35,6 +35,8 @@ const DEFAULTS = {
   kz: 1.6, liftRef: 'auto', drops: true, lang: '', zenHalf: false, hlFull: true, liftBase: 'flat', nIce: 1.31, cryPyr: false,
   iso: false, isoW: 'fresnel', isoLv: '', oriTorus: false,
   range: false, fixed2: 75,                       // 三自由度: 第三个角放开到 [fixed, fixed2] (板晶: 摆幅 0–fixed2)
+  ruled: false, ruledSel: [],                     // 天球视图的直纹曲面; 2DOF 时画哪些边界 (族键)
+  ruledA: [0.55, 0.35], ruledShow: [true, true], // 可达 / 不可达两部分的不透明度与显示 (默认同窗体)
 };
 
 const S = (() => {
@@ -428,6 +430,7 @@ function viewState(chrome) {
     lineW: S.lineW, mcSize: S.mcSize, dragging, checked: S.checked, probe: S.view === 1 ? S.probe : null,
     hoverEp: S.hoverEp, chrome, title, famTitle, skyTitle, drops: S.drops, hlFull: S.hlFull, iso: S.iso && S.view !== 1 && S.view !== 2,
     famKey: (pr, name) => (R && R.paths.length > 1 ? pr.name + '·' + name : name),
+    ruled: ruledOn(), ruledSel: new Set(S.ruledSel), ruledA: S.ruledA, ruledShow: S.ruledShow,
     axes: axesMeta(R ? R.params.om : modeParams(S.mode, S.fixed).om),
   };
 }
@@ -448,7 +451,10 @@ function doRender(chrome) {
     view3d.setData(R, V);
     view3d.layout(V);
   } else if (S.view === 3) {
+    ensureRuled();
+    renderRuledPanel();
     const V = viewState(false);
+    sphere.setRuledFit(V.ruled);
     sphere.setData(R, V);
     sphere.layout(V);
   } else if (torusOn()) torus.setData(R, viewState(false));
@@ -566,6 +572,88 @@ function ensureIso() {
       if (T === R) requestRender();
     });
   }
+}
+// ============================================================ 直纹曲面 (天球视图): 打开时才向 Worker 要
+// 1DOF: 扫描角转一圈的那一张, 由天球 Worker 直接算; 2DOF: 每条勾选的边界 (连同不成立的延伸部分) 一张, 由取向平面 Worker 算.
+const ruledOn = () => S.view === 3 && S.ruled && !d3On();
+function ensureRuled() {
+  const T = R;
+  if (!T || !ruledOn()) return;
+  const sel = new Set(S.ruledSel);
+  for (const pr of T.paths) {
+    const reqs = [];
+    if (T.params.twoDof) {
+      if (!pr.lines || !pr.doneParts.has('ori')) continue;
+      pr.ruledMap = pr.ruledMap || new Map();
+      for (const fm of pr.ori.fams)
+        if (sel.has(famKey(T, pr, fm)) && !pr.ruledMap.has(fm.name))
+          reqs.push([fm.name, pr.oriSlot, { type: 'ruled', fam: fm.name }]);
+    } else if (pr.ruled1 === undefined && pr.doneParts.has('sky')) {
+      reqs.push(['', pr.skySlot, { type: 'ruled1', faces: pr.base.faces, cfg: pr.base.cfg, modeIdx: pr.base.modeIdx, fixedDeg: pr.base.fixedDeg }]);
+    }
+    for (const [name, slot, msg] of reqs) {
+      if (T.params.twoDof) pr.ruledMap.set(name, null); else pr.ruled1 = null;      // null = 算着呢
+      liftBusy++; $('progress').classList.add('on');
+      pool.request(slot, msg).then(d => {
+        if (T.params.twoDof) pr.ruledMap.set(name, d || false); else pr.ruled1 = d || false;
+        if (--liftBusy === 0 && !Rnext) $('progress').classList.remove('on');
+        if (T === R) requestRender();
+      });
+    }
+  }
+}
+/** 直纹曲面的小面板 (天球视图左下, 镜头按钮上方): 图例, 2DOF 时勾选画哪些边界. */
+let ruledPanelKey = '';
+function renderRuledPanel() {
+  const box = $('ruledPanel'), T = R;
+  $('btnRuled').parentElement.hidden = d3On();               // 三自由度: 没有单独一条边界可扫, 不提供
+  $('btnRuled').setAttribute('aria-pressed', String(!!S.ruled));
+  $('btnRuled').classList.toggle('on', !!S.ruled);
+  box.hidden = !ruledOn() || !T;
+  if (box.hidden) { ruledPanelKey = ''; return; }
+  const busy = p => (T.params.twoDof ? [...(p.ruledMap || new Map()).values()].some(v => v === null) : p.ruled1 === null);
+  const pk = [T.job, S.lang, S.ruledSel.join('|'), S.ruledShow.join(','), T.paths.map(p => (p.ori ? 'o' : '') + (busy(p) ? 'b' : '')).join(',')].join(';');
+  if (pk === ruledPanelKey) return;
+  ruledPanelKey = pk;
+  box.textContent = '';
+  // 可达 / 不可达: 显示开关 + 不透明度 (同窗体的颜色 / 透明度设置)
+  [['ruled.reach', [50, 120, 200]], ['ruled.unreach', [150, 80, 80]]].forEach(([k, col], j) => {
+    const row = el('label', 'ruled-alpha');
+    const ck = el('input'); ck.type = 'checkbox'; ck.checked = S.ruledShow[j];
+    ck.addEventListener('change', () => { S.ruledShow = S.ruledShow.map((v, i) => (i === j ? ck.checked : v)); save(); requestRender(); });
+    const sw = el('i'); sw.style.background = css(col);
+    const rg = el('input'); rg.type = 'range'; rg.min = '0'; rg.max = '100'; rg.step = '5'; rg.value = String(Math.round(100 * S.ruledA[j]));
+    const out = el('output', '', rg.value + '%');
+    rg.addEventListener('input', () => { S.ruledA = S.ruledA.map((v, i) => (i === j ? +rg.value / 100 : v)); out.textContent = rg.value + '%'; requestRender(); });
+    rg.addEventListener('change', save);
+    row.append(ck, sw, el('span', '', tr(k)), rg, out);
+    box.append(row);
+  });
+  if (!T.params.twoDof) {
+    const busy = T.paths.some(p => p.ruled1 === null);
+    box.append(el('p', 'ruled-note', tr(busy ? 'ruled.busy' : 'ruled.dof1')));
+    return;
+  }
+  box.append(el('p', 'ruled-note', tr('ruled.pick')));
+  const th = theme(), multi = T.paths.length > 1, sel = new Set(S.ruledSel);
+  T.paths.forEach((pr, k) => {
+    if (!pr.ori) return;
+    pr.ori.fams.forEach((fm, fi) => {
+      const key = famKey(T, pr, fm), info = famInfo(fm, pr.faces, T.params.partial);
+      const row = el('label', 'ruled-row');
+      const ck = el('input'); ck.type = 'checkbox'; ck.checked = sel.has(key);
+      ck.addEventListener('change', () => {
+        const s2 = new Set(S.ruledSel);
+        if (ck.checked) s2.add(key); else s2.delete(key);
+        S.ruledSel = [...s2]; save(); requestRender();
+      });
+      const sw = el('i'); sw.style.background = css(multi ? th.pathcol[k % 6] : th.palette[fi % th.palette.length]);
+      const st = pr.ruledMap && pr.ruledMap.get(fm.name);
+      row.append(ck, sw, el('span', '', (multi ? pr.name + ' · ' : '') + info.title));
+      if (sel.has(key) && st === null) row.append(el('small', '', tr('ruled.busyShort')));
+      box.append(row);
+    });
+  });
 }
 function resetIso() {
   if (R) for (const pr of R.paths) if (!pr.isoPending) pr.iso = undefined;
@@ -1342,6 +1430,12 @@ function initControls() {
   $('btnOriReset').addEventListener('click', () => { resetOriView(); requestRender(); save(); });
   document.querySelectorAll('[data-view3]').forEach(b => b.addEventListener('click', () => view3d.goView(b.dataset.view3)));
   document.querySelectorAll('[data-sph]').forEach(b => b.addEventListener('click', () => sphere.goView(b.dataset.sph)));
+  $('btnRuled').addEventListener('click', () => {
+    S.ruled = !S.ruled;
+    if (S.ruled && R && R.params.twoDof && !R.paths.some(pr => pr.ori && pr.ori.fams.some(fm => S.ruledSel.includes(famKey(R, pr, fm)))))
+      S.ruledSel = [...S.ruledSel, ...R.paths.flatMap(pr => (pr.ori ? pr.ori.fams.filter(fm => fm.kind === 0).map(fm => famKey(R, pr, fm)) : []))];
+    save(); requestRender();
+  });
   document.querySelectorAll('#oriSeg button').forEach(b => b.addEventListener('click', () => {
     S.oriTorus = b.dataset.torus === '1'; syncView(); requestRender(); save();
   }));

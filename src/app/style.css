@@ -342,6 +342,18 @@ input[type="range"] { flex: 1; min-width: 50px; height: 18px; margin: 0; accent-
 .name-same .none { font-size: 11.5px; color: var(--ink-3); }
 .pchip { font: 600 11.5px/1 var(--mono); padding: 5px 7px; border-radius: 7px; background: var(--sunk); border: 1px solid var(--line); color: var(--ink); }
 .pchip:hover { border-color: var(--accent); color: var(--accent-text); }
+#camSph { flex-wrap: wrap; align-items: flex-end; }
+#btnRuled.on { background: var(--accent); color: var(--accent-ink); }
+.ruled-panel { position: absolute; left: 0; bottom: calc(100% + 8px); width: 236px; max-height: 46vh; overflow: auto; padding: 10px 12px; border-radius: 12px;
+               display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.ruled-alpha { display: grid; grid-template-columns: auto auto 1fr; grid-template-rows: auto auto; align-items: center; column-gap: 6px; row-gap: 2px; cursor: pointer; }
+.ruled-alpha i { width: 14px; height: 10px; border-radius: 3px; opacity: .8; }
+.ruled-alpha input[type=range] { grid-column: 2 / 4; width: 100%; min-width: 0; }
+.ruled-alpha output { grid-column: 1; grid-row: 2; font: 11px var(--mono); color: var(--ink-3); }
+.ruled-note { font-size: 11.5px; color: var(--ink-3); line-height: 1.45; }
+.ruled-row { display: flex; align-items: center; gap: 6px; cursor: pointer; line-height: 1.3; }
+.ruled-row i { width: 12px; height: 3px; border-radius: 2px; flex: none; }
+.ruled-row small { margin-left: auto; color: var(--ink-3); }
 .info-note { margin: 6px 0 2px; padding: 8px 10px; border-radius: 9px; background: var(--sunk); color: var(--ink-2); font-size: 12px; line-height: 1.55; }
 .zen-row { display: flex; align-items: center; gap: 10px; color: var(--ink-2); }
 .zen-row > span { white-space: nowrap; min-width: 84px; }

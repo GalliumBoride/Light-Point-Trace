@@ -335,6 +335,11 @@
           <button class="cam" data-sph="side" data-i18n="sph.side" data-i18n-title="sph.sideTitle" title="贴着地平面从侧面看">侧面</button>
           <button class="qmark" data-term="sphere" data-i18n-aria="sph.q" aria-label="天球视图是什么">?</button>
         </div>
+        <div class="camgroup glass">
+          <button class="cam" id="btnRuled" aria-pressed="false" data-i18n="sph.ruled" data-i18n-title="sph.ruledTitle" title="画出每个姿态的出射直线扫出的直纹曲面">直纹曲面</button>
+          <button class="qmark" data-term="ruled" data-i18n-aria="sph.ruledQ" aria-label="直纹曲面是什么">?</button>
+        </div>
+        <div class="ruled-panel glass" id="ruledPanel" hidden></div>
       </div>
 
       <div class="ov ov-br readout glass" id="readout"></div>
