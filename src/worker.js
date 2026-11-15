@@ -6,14 +6,14 @@
 
 import { setConfig, computeSky, computeOri, computeEps, computeLines } from './engine/pipeline.js';
 import { modeParams, sampleCloud, epAlive } from './engine/formlogic.js';
-import { PathCtx, orientCompute, Chain3, validAt, skyD } from './engine/lp.js';
+import { PathCtx, orientCompute, Chain3, validAt, skyD, axesMeta } from './engine/lp.js';
 import { apMargin } from './engine/aperture.js';
 import { computeLift, computeLift1 } from './engine/lift.js';
 import { computeIso } from './engine/iso.js';
 import { isCollapsed, isCausticEp } from './engine/collapse.js';
 import { mirrorPath } from './engine/mirror.js';
 import { famSpec, analyzeDof3, packDof3, mcDof3, spaceData, liftData } from './engine/dof3.js';
-import { ruled1, ruledFam } from './engine/ruled.js';
+import { ruled1, ruledFam, regionLabeler } from './engine/ruled.js';
 
 let S = null;   // { pr: { P, faces, name, ori, eps }, om, fx, cfg }
 let S3 = null;  // 三自由度: { P, F, A, cfg }
@@ -193,7 +193,8 @@ self.onmessage = e => {
       post({ type: 'reply', rid: m.rid, data: computeLift(pr.P, om, fx, pr.ori.fams, pr.lines, pr.eps, { ref: m.ref }) });
     } else if (m.type === 'ruled') {           // 2DOF: 某条边界 (连同不成立的延伸部分) 扫出的直纹曲面
       const fl = pr.lines && pr.lines.get(m.fam);
-      post({ type: 'reply', rid: m.rid, data: fl ? ruledFam(pr.P, om, fx, fl) : null });
+      if (fl && !S.labeler) { const ax = axesMeta(om); S.labeler = regionLabeler(pr.ori, ax.perX, ax.perY); }   // 成立区域的连通块, 每条光路算一次
+      post({ type: 'reply', rid: m.rid, data: fl ? ruledFam(pr.P, om, fx, fl, S.labeler) : null });
     } else if (m.type === 'iso') {
       if (!pr.lines) return post({ type: 'reply', rid: m.rid, data: null });
       if (pr.collapsed) return post({ type: 'reply', rid: m.rid, data: { status: 'degenerate', curves: [], levels: [] } });

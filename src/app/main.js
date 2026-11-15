@@ -13,6 +13,7 @@ import { classifyPath } from '../engine/classify.js';
 import { PRESETS } from './presets.js';
 import { initGlossary } from './glossary.js';
 import { View3D, KIND3D } from './view3d.js';
+import { ruledGroupKey } from './sphere3d.js';
 import { SphereView } from './sphere3d.js';
 import { TorusView } from './torus3d.js';
 import { Dof3View } from './dof3view.js';
@@ -431,6 +432,7 @@ function viewState(chrome) {
     hoverEp: S.hoverEp, chrome, title, famTitle, skyTitle, drops: S.drops, hlFull: S.hlFull, iso: S.iso && S.view !== 1 && S.view !== 2,
     famKey: (pr, name) => (R && R.paths.length > 1 ? pr.name + '·' + name : name),
     ruled: ruledOn(), ruledSel: new Set(S.ruledSel), ruledA: S.ruledA, ruledShow: S.ruledShow,
+    ruledHide: R ? R.ruledHide : null, ruledHover: R ? R.ruledHover : null,
     axes: axesMeta(R ? R.params.om : modeParams(S.mode, S.fixed).om),
   };
 }
@@ -603,20 +605,47 @@ function ensureRuled() {
   }
 }
 /** 直纹曲面的小面板 (天球视图左下, 镜头按钮上方): 图例, 2DOF 时勾选画哪些边界. */
-let ruledPanelKey = '';
+// 片的开关与加亮: 存在这次结果上 (换光路 / 重算就重置)
+const ruledHide = () => (R.ruledHide || (R.ruledHide = new Set()));
+function setRuledHover(keys) { if (!R) return; R.ruledHover = new Set(keys); requestRender(); }
+/** 一条光路一张 (或一条边界一张) 曲面里的片, 按组 (区域 k / 延伸) 归并: [{ g, reach, region, a0, a1 }] */
+function ruledGroups(pr, name, data) {
+  const out = new Map();
+  for (const pc of data.pieces) {
+    const g = ruledGroupKey(pr.name, name, pc);
+    if (!out.has(g)) out.set(g, { g, reach: pc.reach, region: pc.region, a0: pc.a0, a1: pc.a1 });
+  }
+  return [...out.values()].sort((a, b) => (a.reach === b.reach ? a.region - b.region : a.reach ? -1 : 1));
+}
+function ruledChip(grp, label, title) {
+  const keys = Array.isArray(grp) ? grp : [grp];
+  const hide = ruledHide(), allOff = keys.every(k => hide.has(k));
+  const b = el('button', 'rchip ' + (label.ext ? 'ext' : 'reach') + (allOff ? ' off' : ''), label.text);
+  if (title) b.title = title;
+  b.addEventListener('click', () => {
+    if (allOff) keys.forEach(k => hide.delete(k)); else keys.forEach(k => hide.add(k));
+    requestRender();
+  });
+  b.addEventListener('mouseenter', () => setRuledHover(keys));
+  b.addEventListener('mouseleave', () => setRuledHover([]));
+  return b;
+}
+let ruledCardKey = '';
+/** 右栏「直纹曲面」卡片: 可达 / 不成立两部分的显示与不透明度; 1DOF 列出各片, 2DOF 勾边界、按区域或逐条边界开关各片. */
 function renderRuledPanel() {
-  const box = $('ruledPanel'), T = R;
+  const card = $('ruledCard'), box = $('ruledBody'), T = R;
   $('btnRuled').parentElement.hidden = d3On();               // 三自由度: 没有单独一条边界可扫, 不提供
   $('btnRuled').setAttribute('aria-pressed', String(!!S.ruled));
   $('btnRuled').classList.toggle('on', !!S.ruled);
-  box.hidden = !ruledOn() || !T;
-  if (box.hidden) { ruledPanelKey = ''; return; }
-  const busy = p => (T.params.twoDof ? [...(p.ruledMap || new Map()).values()].some(v => v === null) : p.ruled1 === null);
-  const pk = [T.job, S.lang, S.ruledSel.join('|'), S.ruledShow.join(','), T.paths.map(p => (p.ori ? 'o' : '') + (busy(p) ? 'b' : '')).join(',')].join(';');
-  if (pk === ruledPanelKey) return;
-  ruledPanelKey = pk;
+  card.hidden = !ruledOn() || !T;
+  if (card.hidden) { ruledCardKey = ''; return; }
+  const state = p => (T.params.twoDof ? [...(p.ruledMap || new Map()).entries()].map(([k, v]) => k + (v === null ? '…' : v ? '+' : '-')).join(',')
+                                      : String(p.ruled1 === null ? '…' : !!p.ruled1));
+  const pk = [T.job, S.lang, S.ruledSel.join('|'), S.ruledShow.join(','), [...ruledHide()].join('|'), T.paths.map(p => (p.ori ? 'o' : '') + state(p)).join(';')].join('§');
+  if (pk === ruledCardKey) return;
+  ruledCardKey = pk;
   box.textContent = '';
-  // 可达 / 不可达: 显示开关 + 不透明度 (同窗体的颜色 / 透明度设置)
+  // 可达 / 不成立: 显示开关 + 不透明度 (同窗体的颜色 / 透明度设置)
   [['ruled.reach', [50, 120, 200]], ['ruled.unreach', [150, 80, 80]]].forEach(([k, col], j) => {
     const row = el('label', 'ruled-alpha');
     const ck = el('input'); ck.type = 'checkbox'; ck.checked = S.ruledShow[j];
@@ -629,18 +658,51 @@ function renderRuledPanel() {
     row.append(ck, sw, el('span', '', tr(k)), rg, out);
     box.append(row);
   });
+  const multi = T.paths.length > 1, th = theme();
+  const regLabel = (pr, g) => (multi ? pr.name + ' ' : '') + tr('ruled.region', { k: g.region || '?' });
   if (!T.params.twoDof) {
     const busy = T.paths.some(p => p.ruled1 === null);
     box.append(el('p', 'ruled-note', tr(busy ? 'ruled.busy' : 'ruled.dof1')));
+    const row = el('div', 'ruled-chips top');
+    for (const pr of T.paths) {
+      if (!pr.ruled1) continue;
+      for (const g of ruledGroups(pr, '', pr.ruled1))
+        row.append(ruledChip(g.g, { text: g.reach ? regLabel(pr, g) : (multi ? pr.name + ' ' : '') + tr('ruled.ext'), ext: !g.reach },
+                             g.reach ? tr('ruled.range', { a: g.a0.toFixed(1), b: g.a1.toFixed(1) }) : tr('ruled.extTitle')));
+    }
+    if (row.childElementCount) box.append(row);
+    box.append(el('p', 'ruled-note', tr('ruled.chipHint')));
     return;
   }
+  const sel = new Set(S.ruledSel);
+  // 区域: 跨所有勾选的边界, 一块成立区域的各段一起开关
+  const regions = new Map();
+  T.paths.forEach(pr => {
+    if (!pr.ori || !pr.ruledMap) return;
+    for (const fm of pr.ori.fams) {
+      const d = sel.has(famKey(T, pr, fm)) && pr.ruledMap.get(fm.name);
+      if (!d) continue;
+      for (const g of ruledGroups(pr, fm.name, d)) {
+        if (!g.reach) continue;
+        const rk = pr.name + '#' + g.region;
+        if (!regions.has(rk)) regions.set(rk, { pr, g, keys: [] });
+        regions.get(rk).keys.push(g.g);
+      }
+    }
+  });
+  if (regions.size) {
+    const row = el('div', 'ruled-chips top');
+    row.append(el('span', 'lbl', tr('ruled.regions')));
+    for (const { pr, g, keys } of [...regions.values()].sort((a, b) => a.g.region - b.g.region))
+      row.append(ruledChip(keys, { text: regLabel(pr, g) }, tr('ruled.regionTitle')));
+    box.append(row);
+  }
   box.append(el('p', 'ruled-note', tr('ruled.pick')));
-  const th = theme(), multi = T.paths.length > 1, sel = new Set(S.ruledSel);
   T.paths.forEach((pr, k) => {
     if (!pr.ori) return;
     pr.ori.fams.forEach((fm, fi) => {
       const key = famKey(T, pr, fm), info = famInfo(fm, pr.faces, T.params.partial);
-      const row = el('label', 'ruled-row');
+      const row = el('div', 'ruled-row'), lab = el('label');
       const ck = el('input'); ck.type = 'checkbox'; ck.checked = sel.has(key);
       ck.addEventListener('change', () => {
         const s2 = new Set(S.ruledSel);
@@ -648,12 +710,21 @@ function renderRuledPanel() {
         S.ruledSel = [...s2]; save(); requestRender();
       });
       const sw = el('i'); sw.style.background = css(multi ? th.pathcol[k % 6] : th.palette[fi % th.palette.length]);
-      const st = pr.ruledMap && pr.ruledMap.get(fm.name);
-      row.append(ck, sw, el('span', '', (multi ? pr.name + ' · ' : '') + info.title));
-      if (sel.has(key) && st === null) row.append(el('small', '', tr('ruled.busyShort')));
+      lab.append(ck, sw, el('span', '', (multi ? pr.name + ' · ' : '') + info.title));
+      row.append(lab);
+      const d = pr.ruledMap && pr.ruledMap.get(fm.name);
+      if (sel.has(key) && d === null) row.append(el('small', '', tr('ruled.busyShort')));
       box.append(row);
+      if (sel.has(key) && d) {
+        const chips = el('div', 'ruled-chips');
+        for (const g of ruledGroups(pr, fm.name, d))
+          chips.append(ruledChip(g.g, { text: g.reach ? regLabel(pr, g) : tr('ruled.ext'), ext: !g.reach }, g.reach ? tr('ruled.regionTitle1') : tr('ruled.extTitle')));
+        if (!d.pieces.length) chips.append(el('small', '', tr('ruled.none')));
+        box.append(chips);
+      }
     });
   });
+  box.append(el('p', 'ruled-note', tr('ruled.chipHint')));
 }
 function resetIso() {
   if (R) for (const pr of R.paths) if (!pr.isoPending) pr.iso = undefined;

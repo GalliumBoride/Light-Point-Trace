@@ -16,25 +16,30 @@ const D2R = Math.PI / 180;
 const rgb = c => `rgb(${c[0]},${c[1]},${c[2]})`;
 const hex = c => (c[0] << 16) | (c[1] << 8) | c[2];
 
-// 直纹曲面 (同「直纹曲面分析」窗体的默认值): 可达 = 蓝 55%, 不可达 = 红 35%.
-// 窗体的画法: 半透明双面, 先背面后正面两遍, 不写深度. 这里再按半径拆开: 球内的部分排在球壳之前画 (透过球壳看, 被球壳染色),
-// 球外的部分排在球壳之后画 (挡在球前面的不被染色, 绕到球背后的被球壳的深度挡住, 同球背面的线).
+// 直纹曲面 (同「直纹曲面分析」窗体的默认值): 可达 = 蓝 55%, 不可达 = 红 35%, 双面.
+// 所有显示中的片合成一个缓冲区, 镜头一动就把三角形按远近重排 (由远到近画): 曲面之间、曲面自己前后几层之间、
+// 方位 0/360 接缝两侧的遮挡都对, 也不会因为几个物体的先后次序来回换而闪. 再按半径拆两遍画:
+// 球内的部分排在球壳之前 (透过球壳看, 被染色); 球外的部分排在球面上的点和线之后、做深度测试 —
+// 挡在线前面的那层会盖在线上, 线前面的曲面不会盖住线. 不透明度拉到 100% 的部分改成真正不透明 (写深度, 挡住后面的一切).
 export const RULED_REACH = [50, 120, 200], RULED_UNREACH = [150, 80, 80];
-const RULED_VS = `varying vec3 vN; varying vec3 vV; varying float vR;
+/** 直纹曲面一组片的键: 光路|边界#R区域号 (可达) 或 #E (延伸); 界面按它开关、加亮 */
+export const ruledGroupKey = (prName, famName, pc) => `${prName}|${famName}#${pc.reach ? 'R' + pc.region : 'E'}`;
+// 明暗用每个片元的平面法向 (屏幕导数), 不用顶点法向: 直纹曲面常常折回自己, 相邻三角形绕向相反, 平均出来的顶点法向会抵消成 0 (一道道暗纹).
+const RULED_VS = `attribute vec4 rgba;
+varying vec4 vC; varying vec3 vW;
 void main() {
+  vC = rgba;
   vec4 wp = modelMatrix * vec4(position, 1.0);
-  vR = length(wp.xyz);
-  vec4 mv = viewMatrix * wp;
-  vN = normalize(mat3(viewMatrix) * mat3(modelMatrix) * normal);
-  vV = -mv.xyz;
-  gl_Position = projectionMatrix * mv;
+  vW = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
 }`;
-const RULED_FS = `uniform vec3 uCol; uniform float uA; uniform float uOut;
-varying vec3 vN; varying vec3 vV; varying float vR;
+const RULED_FS = `uniform float uOut;
+varying vec4 vC; varying vec3 vW;
 void main() {
-  if ((vR - 1.0) * uOut < 0.0) discard;
-  float d = abs(dot(normalize(vN), normalize(vV)));      // 头灯: 正对镜头最亮, 侧着变暗 (双面一样)
-  gl_FragColor = vec4(uCol * (0.62 + 0.45 * d), uA);
+  if ((length(vW) - 1.0) * uOut < 0.0) discard;
+  vec3 n = normalize(cross(dFdx(vW), dFdy(vW)));
+  float d = abs(dot(n, normalize(cameraPosition - vW)));  // 头灯: 正对镜头最亮, 侧着变暗 (双面一样)
+  gl_FragColor = vec4(vC.rgb * (0.62 + 0.45 * d), vC.a);
 }`;
 
 export class SphereView {
@@ -48,7 +53,9 @@ export class SphereView {
     this.dirty = true;
     this.active = false;
     this.onHover = null;
-    this.ruled = new Map();       // 直纹曲面: 键 → 物体 (setData 时清空)
+    this.ruledObjs = [];          // 直纹曲面的物体 (合成后的网格 + 延伸弧), setData 时随 dyn 一起清掉
+    this.ruledSig = '';
+    this.occ = new Map(); this.occPrev = null; this.occStable = true;   // 叠加层文字 / 末端点被曲面挡住多少
     this.clouds = new Map();
   }
 
@@ -274,80 +281,185 @@ export class SphereView {
       }
     });
     this.clouds = new Map();
-    this.ruled = new Map();
+    this.ruledObjs = []; this.ruledSig = ''; this.ruledT = null; this.occTris = null;
     this.layoutKey = null;
     this.layout(V);
   }
 
   /**
-   * 直纹曲面: 1DOF 一张 (扫描角转一圈), 2DOF 每条勾选的边界一张 (连同不成立的延伸部分).
-   * 数据由主程序向 Worker 要 (pr.ruled1 / pr.ruledMap), 到了建一份; 同时画这张曲面与天球的延伸弧 (不成立的母线与天球的交点).
+   * 直纹曲面: 1DOF 一张 (扫描角转一圈), 2DOF 每条勾选的边界一张 (连同不成立的延伸部分), 每张切成片
+   * (一块成立区域那一段 = 可达片, 其余 = 延伸片). 数据由主程序向 Worker 要 (pr.ruled1 / pr.ruledMap).
+   * 显示哪些片 / 不透明度 / 加亮变了才重建合成网格; 返回签名给 layout 判断要不要重排.
    */
   _syncRuled(V) {
-    const R = this.R;
-    let state = '';
+    const R = this.R, ents = [];
     if (R && V.ruled) {
-      const multi = R.paths.length > 1, th = V.theme;
+      const multi = R.paths.length > 1, th = V.theme, show = V.ruledShow || [true, true];
       R.paths.forEach((pr, k) => {
         const list = R.params.twoDof
-          ? (pr.ori ? pr.ori.fams.map((fm, fi) => ({ name: fm.name, fi, on: V.ruledSel.has(V.famKey(pr, fm.name)) })).filter(x => x.on) : [])
+          ? (pr.ori ? pr.ori.fams.map((fm, fi) => ({ name: fm.name, fi })).filter(x => V.ruledSel.has(V.famKey(pr, x.name))) : [])
           : [{ name: '', fi: 0 }];
         for (const { name, fi } of list) {
           const data = R.params.twoDof ? pr.ruledMap && pr.ruledMap.get(name) : pr.ruled1;
-          if (!data) continue;
-          const key = pr.name + '|' + name;
-          state += key + ';';
-          if (this.ruled.has(key)) continue;
+          if (!data || !data.pieces) continue;
           const col = multi ? th.pathcol[k % th.pathcol.length] : th.palette[fi % th.palette.length];
-          this.ruled.set(key, this._buildRuled(data, col, V.sym));
+          data.pieces.forEach((pc, i) => {
+            const g = ruledGroupKey(pr.name, name, pc);
+            if (!show[pc.reach ? 0 : 1] || (V.ruledHide && V.ruledHide.has(g))) return;
+            ents.push({ pc, g, col, id: pr.name + '|' + name + '#' + i });
+          });
         }
       });
     }
-    // 显示开关与不透明度 (随时可调, 不用重建): 延伸弧跟着不可达部分一起开关
-    const show = V.ruledShow || [true, true], alpha = V.ruledA || [0.55, 0.35];
-    for (const [key, objs] of this.ruled)
-      for (const o of objs) {
-        const j = o.userData.kind === 'reach' ? 0 : 1;
-        o.visible = state.includes(key + ';') && show[j];
-        if (o.userData.kind !== 'ext') o.material.uniforms.uA.value = alpha[j];
-      }
-    return state;
+    const A = V.ruledA || [0.55, 0.35], hov = V.ruledHover || new Set();
+    const sig = [ents.map(e => e.id).join(','), A.join(','), V.sym ? 1 : 0, [...hov].join(',')].join(';');
+    if (sig !== this.ruledSig) { this.ruledSig = sig; this._buildRuled(ents, A, hov, V.sym); }
+    return sig;
   }
 
-  _ruledMat(col, alpha, side, outside) {
+  _ruledMat(out, transparent) {
     return new THREE.ShaderMaterial({
-      vertexShader: RULED_VS, fragmentShader: RULED_FS, side, transparent: true, depthWrite: false, depthTest: true,
-      uniforms: { uCol: { value: new THREE.Vector3(col[0] / 255, col[1] / 255, col[2] / 255) }, uA: { value: alpha }, uOut: { value: outside ? 1 : -1 } },
+      vertexShader: RULED_VS, fragmentShader: RULED_FS, side: THREE.DoubleSide, transparent, depthWrite: !transparent, depthTest: true,
+      // 不透明的那部分深度往后让一点: 与它共面的半透明层 (板晶整张曲面在一个平面里; 镜像补全时两半重合) 稳定地叠在上面, 不打架出条纹
+      polygonOffset: !transparent, polygonOffsetFactor: 2, polygonOffsetUnits: 2,
+      uniforms: { uOut: { value: out } },
     });
   }
 
-  _buildRuled(data, extCol, sym) {
-    const objs = [];
-    for (const [part, col, a] of [[data.unreach, RULED_UNREACH, 0.35], [data.reach, RULED_REACH, 0.55]]) {
-      if (!part || !part.idx.length) continue;
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.BufferAttribute(part.pos, 3));
-      g.setIndex(new THREE.BufferAttribute(part.idx, 1));
-      g.computeVertexNormals();
-      for (const sy of sym ? [1, -1] : [1])
-        for (const [outside, side, ro] of [[false, THREE.BackSide, 0.5], [false, THREE.FrontSide, 0.55], [true, THREE.BackSide, 1.5], [true, THREE.FrontSide, 1.55]]) {
-          const m = new THREE.Mesh(g, this._ruledMat(col, a, side, outside));
-          m.renderOrder = ro; m.frustumCulled = false;
-          m.userData.kind = part === data.reach ? 'reach' : 'unreach';
-          if (sy < 0) m.scale.y = -1;
-          this.dyn.add(m); objs.push(m);
-        }
+  _buildRuled(ents, A, hov, sym) {
+    for (const o of this.ruledObjs) {
+      this.dyn.remove(o);
+      if (o.geometry && !o.userData.shared) o.geometry.dispose();
+      if (o.material) { o.material.dispose(); this.lineMats = this.lineMats.filter(m => m !== o.material); }
     }
-    if (data.ext && data.ext.length)
+    this.ruledObjs = [];
+    const T = { pos: [], col: [], idx: [] }, O = { pos: [], col: [], idx: [] }, ext = new Map();
+    for (const e of ents) {
+      const { pc } = e, h = hov.has(e.g), a0 = A[pc.reach ? 0 : 1];
+      const a = h ? Math.min(0.92, Math.max(a0, 0.3) + 0.3) : a0;
+      const c = (pc.reach ? RULED_REACH : RULED_UNREACH).map(v => (h ? Math.min(255, v + 55) : v) / 255);
+      const tg = a >= 0.999 ? O : T, n = pc.pos.length / 3;
       for (const sy of sym ? [1, -1] : [1]) {
-        const pos = new Float32Array(data.ext.length);
-        for (let i = 0; i < pos.length; i += 3) { pos[i] = RS * data.ext[i]; pos[i + 1] = sy * RS * data.ext[i + 1]; pos[i + 2] = RS * data.ext[i + 2]; }
-        for (const o of [this._seg(pos, extCol, 1.3, { opacity: 0.5 }), this._seg(pos, extCol, 0.8, { ghost: true, opacity: 0.14 })]) {
-          o.userData.kind = 'ext';
-          this.dyn.add(o); objs.push(o);
+        const base = tg.pos.length / 3;
+        for (let i = 0; i < n; i++) { tg.pos.push(pc.pos[3 * i], sy * pc.pos[3 * i + 1], pc.pos[3 * i + 2]); tg.col.push(c[0], c[1], c[2], a); }
+        for (let i = 0; i < pc.idx.length; i++) tg.idx.push(base + pc.idx[i]);
+        if (!pc.reach && pc.ext.length) {
+          const key = e.col.join(','), L = ext.get(key) || ext.set(key, { col: e.col, pos: [] }).get(key);
+          for (let i = 0; i < pc.ext.length; i += 3) L.pos.push(RS * pc.ext[i], sy * RS * pc.ext[i + 1], RS * pc.ext[i + 2]);
         }
       }
-    return objs;
+    }
+    const occ = { pos: [], idx: [], a: [] };
+    const mk = (S, transparent) => {
+      if (!S.idx.length) return null;
+      const g = new THREE.BufferGeometry(), idx = Uint32Array.from(S.idx);
+      g.setAttribute('position', new THREE.Float32BufferAttribute(S.pos, 3));
+      g.setAttribute('rgba', new THREE.Float32BufferAttribute(S.col, 4));
+      g.setIndex(new THREE.BufferAttribute(idx, 1));
+      if (transparent) {                                  // 排序用: 每个三角形的重心与原始顶点序号
+        const nt = idx.length / 3, cent = new Float32Array(3 * nt), p = S.pos;
+        for (let t = 0; t < nt; t++)
+          for (let k = 0; k < 3; k++) cent[3 * t + k] = (p[3 * idx[3 * t] + k] + p[3 * idx[3 * t + 1] + k] + p[3 * idx[3 * t + 2] + k]) / 3;
+        g.userData = { cent, base: idx.slice() };
+      }
+      const off = occ.pos.length / 3;
+      for (const v of S.pos) occ.pos.push(v);
+      for (let i = 0; i < idx.length; i += 3) { occ.idx.push(off + idx[i], off + idx[i + 1], off + idx[i + 2]); occ.a.push(S.col[4 * idx[i] + 3]); }
+      return g;
+    };
+    const gT = mk(T, true), gO = mk(O, false);
+    const add = o => { o.frustumCulled = false; this.dyn.add(o); this.ruledObjs.push(o); };
+    if (gO) { const m = new THREE.Mesh(gO, this._ruledMat(0, false)); add(m); }
+    if (gT)
+      for (const [out, ro] of [[-1, 0.5], [1, 5]]) {
+        const m = new THREE.Mesh(gT, this._ruledMat(out, true));
+        m.renderOrder = ro; if (out > 0) m.userData.shared = true;     // 两遍共用一个几何体, 只释放一次
+        add(m);
+      }
+    this.ruledT = gT; this.sortKey = '';
+    for (const L of ext.values()) {
+      add(this._seg(L.pos, L.col, 1.3, { opacity: 0.55 }));
+      add(this._seg(L.pos, L.col, 0.8, { ghost: true, opacity: 0.14 }));
+    }
+    // 遮挡: 每个三角形的包围球 + 不透明度 (叠加层的文字、末端点按它变淡)
+    const nt = occ.idx.length / 3;
+    if (nt) {
+      const P = Float32Array.from(occ.pos), I = Uint32Array.from(occ.idx), C = new Float32Array(4 * nt);
+      for (let t = 0; t < nt; t++) {
+        const i0 = 3 * I[3 * t], i1 = 3 * I[3 * t + 1], i2 = 3 * I[3 * t + 2];
+        const cx = (P[i0] + P[i1] + P[i2]) / 3, cy = (P[i0 + 1] + P[i1 + 1] + P[i2 + 1]) / 3, cz = (P[i0 + 2] + P[i1 + 2] + P[i2 + 2]) / 3;
+        let r = 0;
+        for (const j of [i0, i1, i2]) r = Math.max(r, Math.hypot(P[j] - cx, P[j + 1] - cy, P[j + 2] - cz));
+        C[4 * t] = cx; C[4 * t + 1] = cy; C[4 * t + 2] = cz; C[4 * t + 3] = r;
+      }
+      this.occTris = { P, I, C, a: Float32Array.from(occ.a), n: nt };
+    } else this.occTris = null;
+    this.occ = new Map(); this.occPrev = null; this.occStable = true;
+  }
+
+  /** 半透明那部分: 镜头动了就按三角形重心离镜头的远近重排 (桶排序, 远的先画) */
+  _sortRuled() {
+    const g = this.ruledT;
+    if (!g) return;
+    const c = this.camera.position, tg = this.controls.target;
+    const key = [c.x, c.y, c.z, tg.x, tg.y, tg.z].map(v => v.toFixed(4)).join(',');
+    if (key === this.sortKey) return;
+    this.sortKey = key;
+    const { cent, base } = g.userData, nt = cent.length / 3, NB = 4096;
+    let dx = tg.x - c.x, dy = tg.y - c.y, dz = tg.z - c.z;
+    const dl = Math.hypot(dx, dy, dz) || 1; dx /= dl; dy /= dl; dz /= dl;
+    const dep = new Float32Array(nt);
+    let lo = Infinity, hi = -Infinity;
+    for (let t = 0; t < nt; t++) {
+      const d = (cent[3 * t] - c.x) * dx + (cent[3 * t + 1] - c.y) * dy + (cent[3 * t + 2] - c.z) * dz;
+      dep[t] = d; if (d < lo) lo = d; if (d > hi) hi = d;
+    }
+    const sc = (NB - 1) / Math.max(hi - lo, 1e-9), bin = new Uint16Array(nt), cnt = new Uint32Array(NB + 1);
+    for (let t = 0; t < nt; t++) { const b = Math.min(NB - 1, ((hi - dep[t]) * sc) | 0); bin[t] = b; cnt[b + 1]++; }
+    for (let b = 0; b < NB; b++) cnt[b + 1] += cnt[b];
+    const out = g.index.array;
+    for (let t = 0; t < nt; t++) {
+      const w = 3 * cnt[bin[t]]++;
+      out[w] = base[3 * t]; out[w + 1] = base[3 * t + 1]; out[w + 2] = base[3 * t + 2];
+    }
+    g.index.needsUpdate = true;
+  }
+
+  /** 从镜头看点 p (世界坐标) 时, 中间隔着的曲面让它还剩几成可见 (∏(1 − 不透明度)); 镜头在动时用上一次停下时的结果 */
+  _occlusion(p) {
+    const T = this.occTris;
+    if (!T) return 1;
+    const key = p.map(v => v.toFixed(4)).join(',');
+    const hit = this.occ.get(key);
+    if (hit !== undefined) return hit;
+    if (!this.occStable) { const v = this.occPrev && this.occPrev.get(key); return v === undefined ? 1 : v; }
+    const o = this.camera.position;
+    let dx = p[0] - o.x, dy = p[1] - o.y, dz = p[2] - o.z;
+    const L = Math.hypot(dx, dy, dz) || 1; dx /= L; dy /= L; dz /= L;
+    const { P, I, C, a, n } = T;
+    let tr = 1;
+    for (let t = 0; t < n && tr > 0.03; t++) {
+      if (a[t] < 0.02) continue;
+      const vx = C[4 * t] - o.x, vy = C[4 * t + 1] - o.y, vz = C[4 * t + 2] - o.z, r = C[4 * t + 3];
+      const tp = vx * dx + vy * dy + vz * dz;
+      if (tp < -r || tp > L + r || vx * vx + vy * vy + vz * vz - tp * tp > r * r) continue;
+      const i0 = 3 * I[3 * t], i1 = 3 * I[3 * t + 1], i2 = 3 * I[3 * t + 2];
+      const e1x = P[i1] - P[i0], e1y = P[i1 + 1] - P[i0 + 1], e1z = P[i1 + 2] - P[i0 + 2];
+      const e2x = P[i2] - P[i0], e2y = P[i2 + 1] - P[i0 + 1], e2z = P[i2 + 2] - P[i0 + 2];
+      const hx = dy * e2z - dz * e2y, hy = dz * e2x - dx * e2z, hz = dx * e2y - dy * e2x;
+      const det = e1x * hx + e1y * hy + e1z * hz;
+      if (Math.abs(det) < 1e-12) continue;
+      const f = 1 / det, sx = o.x - P[i0], sy = o.y - P[i0 + 1], sz = o.z - P[i0 + 2];
+      const u = f * (sx * hx + sy * hy + sz * hz);
+      if (u < 0 || u > 1) continue;
+      const qx = sy * e1z - sz * e1y, qy = sz * e1x - sx * e1z, qz = sx * e1y - sy * e1x;
+      const v = f * (dx * qx + dy * qy + dz * qz);
+      if (v < 0 || u + v > 1) continue;
+      const tt = f * (e2x * qx + e2y * qy + e2z * qz);
+      if (tt > 1e-4 && tt < L - 2e-3) tr *= 1 - a[t];
+    }
+    this.occ.set(key, tr);
+    return tr;
   }
 
   /** 打开直纹曲面时把镜头拉远一些 (母线伸到天球外 3 个单位), 关掉时回到只装天球 (用户没动过镜头时). */
@@ -398,7 +510,6 @@ export class SphereView {
     const cloudState = this._syncClouds(V);
     const ruledState = this._syncRuled(V);
     const lk = [V.lineW, V.lines, V.arcs, V.mc, V.hlFull, V.iso, [...V.checked].join('|'), cloudState, ruledState].join(',');
-    if (V.ruled) this.dirty = true;                       // 不透明度滑块: 只改了 uniform, 也要重画
     if (lk !== this.layoutKey) {
       this.layoutKey = lk;
       for (const it of this.items) {
@@ -472,6 +583,19 @@ export class SphereView {
       if (!this.userMoved) this.goView(this.lastView || 'oblique', true);   // 画布尺寸定了再取景 (没动过镜头时)
     }
     for (const m of this.lineMats) m.resolution.set(W, H);
+    this._sortRuled();
+    if (this.occTris) {
+      const c = this.camera.position, ck = [c.x, c.y, c.z].map(v => v.toFixed(4)).join(',');
+      if (ck !== this.occCamKey) {
+        if (this.occCamKey !== undefined) {
+          if (this.occ.size) this.occPrev = this.occ;
+          this.occ = new Map(); this.occStable = false;
+          clearTimeout(this.occTimer);
+          this.occTimer = setTimeout(() => { this.occStable = true; this.dirty = true; }, 160);
+        }
+        this.occCamKey = ck;
+      }
+    }
     this.gl.render(this.scene, this.camera);
     this._drawOverlay();
   }
@@ -500,7 +624,7 @@ export class SphereView {
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     const lab = (D, text, col) => {
       if (!this._proj(D.map(v => v * RS), s)) return;
-      ctx.globalAlpha = this._front(D) ? 1 : 0.35;
+      ctx.globalAlpha = (this._front(D) ? 1 : 0.35) * this._occlusion(D.map(v => v * RS));
       ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.strokeText(text, s[0], s[1] - 8);
       ctx.fillStyle = col; ctx.fillText(text, s[0], s[1] - 8);
       ctx.globalAlpha = 1;
@@ -510,8 +634,10 @@ export class SphereView {
     lab([0, 0, 1], t('cam.zen'), '#475569');
     lab([-A[0], 0, A[2]], t('cam.anti'), '#475569');
     if (this._proj([0, 0, 0], s)) {
+      ctx.globalAlpha = this._occlusion([0, 0, 0.0001]);
       ctx.fillStyle = '#334155'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.9)';
       ctx.strokeText(t('sph.observer'), s[0], s[1] - 8); ctx.fillText(t('sph.observer'), s[0], s[1] - 8);
+      ctx.globalAlpha = 1;
     }
     // 末端点: 朝向镜头的正常画, 背面的很淡
     const R = this.R;
@@ -527,7 +653,7 @@ export class SphereView {
           for (const sy of V.sym ? [1, -1] : [1]) {
             const D = [r.D[0], sy * r.D[1], r.D[2]];
             if (!this._proj(D.map(v => v * RS), s)) continue;
-            ctx.globalAlpha = this._front(D) ? 1 : 0.22;
+            ctx.globalAlpha = (this._front(D) ? 1 : 0.22) * this._occlusion(D.map(v => v * RS));
             drawEpGlyphOn(ctx, s[0], s[1], r.kind, rim);
             ctx.globalAlpha = 1;
             if (hov && sy === 1) {
