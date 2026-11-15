@@ -90,8 +90,10 @@ function runsOf(F, ok, periodic) {
 
 /**
  * 一片的网格: 每条母线 NT 个点, 相邻母线之间连三角形; 不可达片另给延伸弧 (母线与天球的交点连成的线段).
- * 顶点法向直接按曲面算: L(s, t) = P(s) + t·e(s), 法向 ∝ ∂L/∂s × e (∂L/∂s 用相邻母线上同一 t 的点差分),
- * 不靠三角形法向平均 — 曲面折回自己时相邻三角形绕向相反, 平均会抵消. 正负号由着色器按镜头翻.
+ * 顶点法向直接按曲面算: L(s, t) = P(s) + t·e(s), N = ∂L/∂s × e = A + t·B, A = P'×e, B = e'×e
+ * (P', e' 用相邻母线差分), 不靠三角形法向平均 — 曲面折回自己时相邻三角形绕向相反, 平均会抵消.
+ * N 不归一化: 它沿母线是 t 的一次式, 着色器线性插值后正好是像素处的真法向 (腰点附近法向在很短一段里转半圈,
+ * 归一化后再插值会出放射状的假褶子). 参数 s 取 (P, e) 这条六维曲线的弧长, 母线疏密不同的地方 N 的大小也一致.
  */
 function pieceMesh(F, gens, reach) {
   const m = gens.length, pos = new Float32Array(3 * NT * m), nrm = new Float32Array(3 * NT * m), idx = [];
@@ -107,16 +109,15 @@ function pieceMesh(F, gens, reach) {
     }
   });
   for (let r = 0; r < m; r++) {
-    const ra = Math.max(0, r - 1), rb = Math.min(m - 1, r + 1), o = 6 * gens[r];
+    const oa = 6 * gens[Math.max(0, r - 1)], ob = 6 * gens[Math.min(m - 1, r + 1)], o = 6 * gens[r];
     const ex = F[o + 3], ey = F[o + 4], ez = F[o + 5];
-    let last = [0, 0, 1];
+    const d = [0, 1, 2, 3, 4, 5].map(j => F[ob + j] - F[oa + j]);
+    const ds = Math.hypot(...d) || 1;                // 六维弧长的增量
+    const ax = (d[1] * ez - d[2] * ey) / ds, ay = (d[2] * ex - d[0] * ez) / ds, az = (d[0] * ey - d[1] * ex) / ds;   // A = P'×e
+    const bx = (d[4] * ez - d[5] * ey) / ds, by = (d[5] * ex - d[3] * ez) / ds, bz = (d[3] * ey - d[4] * ex) / ds;   // B = e'×e
     for (let k = 0; k < NT; k++) {
-      const wa = 3 * (ra * NT + k), wb = 3 * (rb * NT + k), w = 3 * (r * NT + k);
-      const sx = pos[wb] - pos[wa], sy = pos[wb + 1] - pos[wa + 1], sz = pos[wb + 2] - pos[wa + 2];
-      let nx = sy * ez - sz * ey, ny = sz * ex - sx * ez, nz = sx * ey - sy * ex;
-      const nn = Math.hypot(nx, ny, nz);
-      if (nn > 1e-12) { nx /= nn; ny /= nn; nz /= nn; last = [nx, ny, nz]; } else [nx, ny, nz] = last;   // 腰线上 ∂L/∂s ∥ e: 借上一个点的
-      nrm[w] = nx; nrm[w + 1] = ny; nrm[w + 2] = nz;
+      const t = -T_MAX + 2 * T_MAX * k / (NT - 1), w = 3 * (r * NT + k);
+      nrm[w] = ax + t * bx; nrm[w + 1] = ay + t * by; nrm[w + 2] = az + t * bz;
     }
   }
   const ext = [];
