@@ -521,21 +521,22 @@ export class SphereView {
     this.V = V;
     const cloudState = this._syncClouds(V);
     const ruledState = this._syncRuled(V);
-    const lk = [V.lineW, V.lines, V.arcs, V.mc, V.hlFull, V.iso, [...V.checked].join('|'), cloudState, ruledState].join(',');
+    const lk = [V.lineW, V.lines, V.arcs, V.dots, V.mc, V.hlFull, V.iso, [...V.checked].join('|'), cloudState, ruledState].join(',');
+    const dots = !!V.dots || !V.lines;          // 线上的采样点: 图层开了, 或者没画连线
     if (lk !== this.layoutKey) {
       this.layoutKey = lk;
       for (const it of this.items) {
         const full = it.fm && V.checked.has(V.famKey(it.pr, it.fm.name));
         if (it.role === 'mc') it.obj.visible = V.mc && V.arcs;
-        else if (it.role === 'arc') it.obj.visible = V.arcs;
+        else if (it.role === 'arc') it.obj.visible = V.arcs && dots;
         else if (it.role === 'line' || it.role === 'ghost') {
           it.obj.visible = V.lines && (V.arcs || full);
           it.obj.material.linewidth = it.role === 'line' ? (full ? 2 * V.lineW : V.lineW) : 0.6 * V.lineW;
         } else if (it.role === 'formal') {
           it.obj.visible = V.lines && full && V.hlFull;
           it.obj.material.linewidth = 0.6 * V.lineW;
-        } else if (it.role === 'roots') it.obj.visible = full;
-        else if (it.role === 'rootsNo') it.obj.visible = full && V.hlFull;
+        } else if (it.role === 'roots') it.obj.visible = full && dots;
+        else if (it.role === 'rootsNo') it.obj.visible = full && V.hlFull && dots;
         else if (it.role === 'iso') { it.obj.visible = !!V.iso; it.obj.material.linewidth = 0.7 * V.lineW; }
       }
       for (const c of this.clouds.values())

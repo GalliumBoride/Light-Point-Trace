@@ -240,6 +240,8 @@ export class Renderer {
 
   get multi() { return this.R && this.R.paths.length > 1; }
   /** 「左右镜像补全」时这条光路的镜像光路 (取向平面里另画一份, 点云用蓝色区分); 没有就是 null. */
+  /** 线上的采样点 (边界点 / 根点) 画不画: 图层开了, 或者没画连线 (那时点就是边界本身) */
+  dotsOn() { return !!this.V.dots || !this.V.lines; }
   mirrorOf(pr) {
     const m = pr.mirror;
     return this.V.sym && m && m.status === 'ok' && !m.dup && m.ori ? m : null;
@@ -269,7 +271,7 @@ export class Renderer {
         for (let i = 0; i < n; i += step) this.plotSky(mc[3 * i], mc[3 * i + 1], mc[3 * i + 2], V.mcSize, col, alpha);
       });
     this.drawInspectorSky();
-    if (V.arcs)
+    if (V.arcs && this.dotsOn())
       R.paths.forEach((pr, k) => {
         if (!pr.sky) return;
         pr.sky.forEach((s, fi) => {
@@ -296,8 +298,9 @@ export class Renderer {
           } else if (cloud === undefined && R.requestCloud) R.requestCloud(pr, fm);
         }
         const rt = pr.ori.roots[fi], D = rt.D, ok = rt.ok;
-        for (let i = 0; i < ok.length; i++)
-          if (ok[i] || V.hlFull) this.plotSky(D[3 * i], D[3 * i + 1], D[3 * i + 2], ok[i] ? 3 : 2, col, ok[i] ? 1.0 : 0.30);
+        if (this.dotsOn())
+          for (let i = 0; i < ok.length; i++)
+            if (ok[i] || V.hlFull) this.plotSky(D[3 * i], D[3 * i + 1], D[3 * i + 2], ok[i] ? 3 : 2, col, ok[i] ? 1.0 : 0.30);
       });
     }
   }
@@ -565,6 +568,7 @@ export class Renderer {
         }
       }
 
+    if (!this.dotsOn()) return;                  // 下面都是线上的根点
     for (const pr of R.paths) {                  // 镜像光路的根点: 只画成立的那些
       const m = this.mirrorOf(pr);
       if (!m || !V.arcs) continue;

@@ -1,24 +1,34 @@
 // 取向平面卷成甜甜圈 (环面): 两个取向角都是转一圈回到原处, 平面的左右边、上下边本来就是同一处, 粘起来就是环面.
 // 大圈方向 = 横轴 (α 方位等), 绕管子一圈 = 纵轴 (柱晶 roll / Lowitz ζ; ζ 只取 0–180° 时是半根管子).
-// 面上的图案就是取向平面本身: 用 2D 渲染器在离屏画布上画一张完整的 360° 视窗 (点云、边界、焦散、末端点、高亮、网格), 裁出绘图区贴上去.
+// 面上的东西都按精确坐标直接放上去 (不是把平面图当贴图贴上): 一点 (横轴°, 纵轴°) ↦ 环面上
+//   ((R + r cos w) cos u, (R + r cos w) sin u, r sin w),  u = 横轴折成一圈, w = 纵轴.
+// 边界 / 焦散连线、网格是三维折线 (略高出曲面一点, 背面被管子挡住), 点云和线上的采样点是三维点,
+// 末端点和位置查看的十字按投影位置画在叠加层上 (被管子挡住的不画); 高亮族的两侧着色直接用网格上的符号做成数据贴图.
 // 悬停给读数, 单击 = 取向平面的位置查看.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { Renderer, oriArea } from './render.js';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { drawEpGlyphOn } from './render.js';
 
 const D2R = Math.PI / 180;
 const RING = 1, TUBE = 0.44;              // 中心圈半径, 管半径
-const TEX_W = 1000, TEX_DPR = 2;          // 贴图: 横轴 360° 画成 1000 css px (与平时的取向平面差不多大, 线宽、点大小一致), 2 倍像素
+const LIFT_LINE = 0.006, LIFT_DOT = 0.004, LIFT_MARK = 0.012;   // 线 / 点 / 符号高出曲面多少 (免得和曲面抢深度)
 const LIGHT = new THREE.Vector3(-0.35, -0.55, 0.76).normalize();
+const hex = c => (c[0] << 16) | (c[1] << 8) | c[2];
+const css = (c, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 
 export class TorusView {
   constructor(canvas, overlay) {
     this.canvas = canvas; this.overlay = overlay;
     this.gl = null; this.active = false; this.dirty = true;
-    this.texKey = null; this.geoKey = null;
+    this.dataKey = null; this.geoKey = null;
     this.onHover = null; this.onPick = null;
     this.axes = null;
+    this.marks = [];                             // 叠加层上的符号: { x, y, kind, rim, alpha } / { probe: true, x, y }
+    this.lineMats = [];
   }
 
   _init() {
@@ -34,16 +44,11 @@ export class TorusView {
     ctl.minDistance = 1.2; ctl.maxDistance = 12;
     ctl.addEventListener('change', () => { this.dirty = true; });
     ctl.addEventListener('start', () => { this.tween = null; this.userMoved = true; });
-    // 贴图: 离屏 2D 渲染器画整张取向平面, 再裁出绘图区
-    this.paper = document.createElement('canvas');
-    this.paperR = new Renderer(this.paper);
-    this.texCanvas = document.createElement('canvas');
-    this.tex = new THREE.CanvasTexture(this.texCanvas);
-    this.tex.colorSpace = THREE.SRGBColorSpace;
-    this.tex.anisotropy = r.capabilities.getMaxAnisotropy();
-    // 明暗直接烘进顶点色 (固定的斜上方光), 白底贴图在正面保持接近白色
-    this.mat = new THREE.MeshBasicMaterial({ map: this.tex, vertexColors: true, side: THREE.DoubleSide });
+    // 明暗直接烘进顶点色 (固定的斜上方光); 贴图只用来给高亮族的两侧着色 (没有时为空)
+    this.mat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
     this.mesh = null;
+    this.dyn = new THREE.Group();
+    this.scene.add(this.dyn);
     this.ray = new THREE.Raycaster();
     let down = null;
     this.canvas.addEventListener('pointermove', e => { this.hoverReq = e; });
@@ -73,7 +78,7 @@ export class TorusView {
     if (on) { this._init(); this.dirty = true; }
   }
 
-  /** 纵轴范围变了 (ζ 整圈 / 半圈) 才重建网格 */
+  /** 纵轴范围变了 (ζ 整圈 / 半圈) 才重建曲面网格 */
   _geometry(y0, y1) {
     const key = y0 + ',' + y1;
     if (key === this.geoKey) return;
@@ -103,33 +108,212 @@ export class TorusView {
     g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     g.setIndex(idx);
     this.mesh = new THREE.Mesh(g, this.mat);
+    this.mesh.renderOrder = 0;
     this.scene.add(this.mesh);
   }
 
-  /** 新结果 / 图层 / 高亮 / 位置查看变化 → 重画贴图. V 来自 viewState. */
+  /** (横轴°, 纵轴°) → 环面上的点, 沿外法向抬高 lift */
+  _xyz(x, y, lift, out, o) {
+    const ax = this.axes, u = (x - ax.x0) / (ax.x1 - ax.x0) * 2 * Math.PI, w = y * D2R, r = TUBE + lift;
+    const cw = Math.cos(w);
+    out[o] = (RING + r * cw) * Math.cos(u); out[o + 1] = (RING + r * cw) * Math.sin(u); out[o + 2] = r * Math.sin(w);
+  }
+  /** 纵轴只取半圈 (ζ 0–180°) 时, 范围外的点不在管子上 */
+  _inY(y) { const ax = this.axes; return ax.y1 - ax.y0 >= 360 - 1e-9 || (y >= ax.y0 - 1e-6 && y <= ax.y1 + 1e-6); }
+
+  _clearDyn() {
+    for (const o of [...this.dyn.children]) {
+      this.dyn.remove(o);
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    }
+    this.lineMats = [];
+    if (this.mat.map) { this.mat.map.dispose(); this.mat.map = null; this.mat.needsUpdate = true; }
+  }
+  _lines(pos, col, width, opacity = 1) {
+    if (!pos.length) return;
+    const m = new LineMaterial({ color: hex(col), linewidth: width, worldUnits: false, transparent: true, opacity, depthTest: true, depthWrite: false });
+    if (this.W) m.resolution.set(this.W, this.H);
+    this.lineMats.push(m);
+    const g = new LineSegmentsGeometry();
+    g.setPositions(pos);
+    const l = new LineSegments2(g, m);
+    l.frustumCulled = false;
+    l.renderOrder = 3;
+    this.dyn.add(l);
+  }
+  _points(pos, col, size, opacity, order = 2) {
+    if (!pos.length) return;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos instanceof Float32Array ? pos : Float32Array.from(pos), 3));
+    const p = new THREE.Points(g, new THREE.PointsMaterial({ color: hex(col), size, sizeAttenuation: false, transparent: true, opacity, depthWrite: false }));
+    p.frustumCulled = false;
+    p.renderOrder = order;
+    this.dyn.add(p);
+  }
+
+  /** 新结果 / 图层 / 高亮 / 位置查看变化 → 重建面上的东西. V 来自 viewState. */
   setData(R, V) {
     this._init();
     const ax = this.axes = V.axes;
     this._geometry(ax.y0, ax.y1);
     const flags = R ? R.paths.map(p => [p.ori ? 1 : 0, p.lines ? 1 : 0, p.eps ? 1 : 0, p.mirror ? p.mirror.status : '-'].join('')).join('|') + (R.oriLocal ? 'L' : '') : '';
-    const key = [R ? R.job : '', ax.x0, ax.x1, ax.y0, ax.y1, V.mc, V.arcs, V.lines, V.endpoints, V.sym, V.lineW, V.mcSize, V.hlFull,
+    const key = [R ? R.job : '', ax.x0, ax.x1, ax.y0, ax.y1, V.mc, V.arcs, V.lines, V.dots, V.endpoints, V.sym, V.lineW, V.mcSize, V.hlFull,
                  [...V.checked].join('|'), V.probe ? V.probe.x + ',' + V.probe.y : '', V.theme.bg.join(','), flags].join(';');
-    if (key === this.texKey) return;
-    this.texKey = key;
-    const xw = ax.x1 - ax.x0, yw = ax.y1 - ax.y0, aw = TEX_W, ah = Math.round(TEX_W / 2 * yw / 360);
-    const Vt = { ...V, W: aw + 82, H: ah + 136, dpr: TEX_DPR, view: 1, chrome: false, dragging: false, hoverEp: null, iso: false,
-                 xw, yw, xc: (ax.x0 + ax.x1) / 2, yc: (ax.y0 + ax.y1) / 2 };
-    this.paperR.render(Vt, R);
-    const area = oriArea(Vt.W, Vt.H), tc = this.texCanvas;
-    const tw = aw * TEX_DPR, th = ah * TEX_DPR;
-    if (tc.width !== tw || tc.height !== th) {
-      tc.width = tw; tc.height = th;
-      this.tex.dispose();                        // 尺寸变了 (ζ 整圈 ↔ 半圈) 要重新分配 GPU 贴图
-    }
-    tc.getContext('2d').drawImage(this.paper, area.X * TEX_DPR, area.Y * TEX_DPR, tw, th, 0, 0, tw, th);
-    this.tex.needsUpdate = true;
+    if (key === this.dataKey) return;
+    this.dataKey = key;
     this.scene.background = new THREE.Color(`rgb(${V.theme.bg.join(',')})`);
+    this._clearDyn();
+    this.marks = [];
+    this._grid(V);
+    if (R) this._build(R, V);
     this.dirty = true;
+  }
+
+  /** 网格: 每 45° 一圈; 横轴、纵轴的 0° (平面图的边) 加粗 */
+  _grid(V) {
+    const ax = this.axes, thin = [], bold = [], full = ax.y1 - ax.y0 >= 360 - 1e-9;
+    const seg = (out, x0, y0, x1, y1, n) => {
+      for (let k = 0; k < n; k++) {
+        const o = out.length;
+        out.length += 6;
+        this._xyz(x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n, LIFT_LINE * 0.5, out, o);
+        this._xyz(x0 + (x1 - x0) * (k + 1) / n, y0 + (y1 - y0) * (k + 1) / n, LIFT_LINE * 0.5, out, o + 3);
+      }
+    };
+    for (let x = ax.x0; x < ax.x1 - 1e-9; x += 45) seg(x === ax.x0 ? bold : thin, x, ax.y0, x, ax.y1, Math.max(24, Math.round((ax.y1 - ax.y0) / 3)));
+    for (let y = ax.y0; full ? y < ax.y1 - 1e-9 : y <= ax.y1 + 1e-9; y += 45) seg(y === ax.y0 || (!full && y >= ax.y1 - 1e-9) ? bold : thin, ax.x0, y, ax.x1, y, 180);
+    this._lines(thin, [0, 0, 0], 1, 0.16);
+    this._lines(bold, [0, 0, 0], 1.8, 0.7);
+  }
+
+  _build(R, V) {
+    const T = V.theme, multi = R.paths.length > 1;
+    const famLabel = (pr, fm) => (multi ? pr.name + '·' + fm.name : fm.name);
+    const pal = i => T.palette[i % T.palette.length], pcol = k => T.pathcol[k % T.pathcol.length];
+    const mirrorOf = pr => { const m = pr.mirror; return V.sym && m && m.status === 'ok' && !m.dup && m.ori ? m : null; };
+    const dots = !!V.dots || !V.lines;
+
+    // 高亮族的两侧着色 (同平面图: 那一侧淡淡染成族的颜色, 另一侧淡灰) — 网格上的符号直接做成贴图
+    if (V.checked.size > 0 && V.mc) {
+      let tex = null, nS = 0, nW = 0;
+      for (const pr of R.paths) {
+        if (!pr.ori) continue;
+        pr.ori.fams.forEach((fm, fi) => {
+          if (!V.checked.has(famLabel(pr, fm)) || fm.sense === 0) return;
+          const side = pr.ori.side[fi], SC = pr.ori.sideSC, SW = pr.ori.sideSW;
+          if (!tex) { nS = SC.length; nW = SW.length; tex = new Float32Array(nS * nW * 3).fill(1); }
+          if (SC.length !== nS || SW.length !== nW) return;
+          const col = pal(fi);
+          for (let a = 0; a < nW; a++)
+            for (let b = 0; b < nS; b++) {
+              const sat = side[a * nS + b] === 1, c = sat ? col : T.sideGray, al = sat ? 0.10 : 0.08, o = 3 * (a * nS + b);
+              for (let ch = 0; ch < 3; ch++) tex[o + ch] = tex[o + ch] * (1 - al) + (c[ch] / 255) * al;
+            }
+        });
+      }
+      if (tex) {
+        const data = new Uint8Array(nS * nW * 4);
+        for (let i = 0; i < nS * nW; i++) {
+          data[4 * i] = Math.round(255 * tex[3 * i]); data[4 * i + 1] = Math.round(255 * tex[3 * i + 1]);
+          data[4 * i + 2] = Math.round(255 * tex[3 * i + 2]); data[4 * i + 3] = 255;
+        }
+        const t = new THREE.DataTexture(data, nS, nW, THREE.RGBAFormat);
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.wrapS = THREE.RepeatWrapping; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter;
+        t.needsUpdate = true;
+        this.mat.map = t; this.mat.needsUpdate = true;
+      }
+    }
+
+    // MC 点云 (成立的姿态) 与镜像光路的点云
+    const cloud = (X, Y, col, alpha) => {
+      const pos = new Float32Array(3 * X.length);
+      let n = 0;
+      for (let i = 0; i < X.length; i++) { if (!this._inY(Y[i])) continue; this._xyz(X[i], Y[i], LIFT_DOT * 0.5, pos, 3 * n); n++; }
+      this._points(pos.subarray(0, 3 * n), col, V.mcSize, alpha, 1);
+    };
+    if (V.mc && V.arcs)
+      R.paths.forEach((pr, k) => {
+        if (pr.ori) cloud(pr.ori.mcX, pr.ori.mcY, multi ? pcol(k) : T.mc, multi ? T.mcAlpha * 0.8 : T.mcAlpha);
+        const m = mirrorOf(pr);
+        if (m) cloud(m.ori.mcX, m.ori.mcY, T.mirrorMc, T.mcAlpha);
+      });
+
+    // 边界 / 焦散连线: 成立的段常显; 不成立的段只在高亮这一族 (且勾了"整条") 时淡淡地画 — 同平面图
+    if (V.lines) {
+      const srcs = [];
+      R.paths.forEach((pr, k) => {
+        if (pr.ori && pr.lines) srcs.push({ pr, k, fams: pr.ori.fams, lines: pr.lines, mirror: false });
+        const m = mirrorOf(pr);
+        if (m && m.linesMap) srcs.push({ pr, k, fams: m.ori.fams, lines: m.linesMap, mirror: true });
+      });
+      for (const { pr, k, fams, lines, mirror } of srcs)
+        fams.forEach((fm, fi) => {
+          const hot = !mirror && V.checked.has(famLabel(pr, fm)), full = hot && V.hlFull;
+          if (!hot && !V.arcs) return;
+          const fl = lines.get(fm.name); if (!fl) return;
+          const okPos = [], noPos = [];
+          for (let li = 0; li < fl.par.length; li++) {
+            const par = fl.par[li], sky = fl.sky[li], n = par.length / 2;
+            for (let i = 0; i + 1 < n; i++) {
+              const ok = sky[4 * i + 3] > 0.5 && sky[4 * i + 7] > 0.5;
+              if (!ok && !full) continue;
+              const xa = par[2 * i] / D2R, ya = par[2 * i + 1] / D2R, xb = par[2 * i + 2] / D2R, yb = par[2 * i + 3] / D2R;
+              if (Math.abs(xb - xa) > 20 || Math.abs(yb - ya) > 20 || !this._inY(ya) || !this._inY(yb)) continue;   // 跨缝的跳变
+              const out = ok ? okPos : noPos, o = out.length;
+              out.length += 6;
+              this._xyz(xa, ya, LIFT_LINE, out, o); this._xyz(xb, yb, LIFT_LINE, out, o + 3);
+            }
+          }
+          const col = multi ? pcol(k) : pal(fi);
+          if (full) this._lines(noPos, col, Math.max(1, V.lineW * 0.6), 0.32);
+          this._lines(okPos, col, V.lineW, mirror ? 0.6 : 1);
+        });
+    }
+
+    // 线上的采样点 (根点): 图层开了, 或者没画连线
+    if (dots) {
+      R.paths.forEach((pr, k) => {
+        const m = mirrorOf(pr);
+        if (m && V.arcs)
+          m.ori.fams.forEach((fm, fi) => {
+            const rt = m.ori.roots[fi], pos = [];
+            for (let i = 0; i < rt.sc.length; i++) {
+              if (!rt.ok[i] || !this._inY(rt.sw[i])) continue;
+              const o = pos.length; pos.length += 3; this._xyz(rt.sc[i], rt.sw[i], LIFT_DOT, pos, o);
+            }
+            this._points(pos, multi ? pcol(k) : pal(fi), 2, 0.45);
+          });
+        if (!pr.ori) return;
+        const srcs = [pr.ori];
+        if (k === 0 && R.oriLocal) srcs.push(R.oriLocal);
+        for (const src of srcs)
+          src.fams.forEach((fm, fi) => {
+            const hot = V.checked.has(famLabel(pr, fm));
+            if (!V.arcs && !hot) return;
+            const col = multi ? pcol(k) : pal(fi), rt = src.roots[fi], okPos = [], noPos = [];
+            for (let i = 0; i < rt.sc.length; i++) {
+              if (!this._inY(rt.sw[i])) continue;
+              const out = rt.ok[i] ? okPos : noPos, o = out.length;
+              out.length += 3; this._xyz(rt.sc[i], rt.sw[i], LIFT_DOT, out, o);
+            }
+            this._points(okPos, col, hot ? 3 : 2, 0.95, 3);
+            this._points(noPos, col, hot && V.hlFull ? 2 : 1, hot && V.hlFull ? 0.40 : 0.12, 3);
+          });
+      });
+    }
+
+    // 末端点、位置查看: 叠加层上画 (每帧按镜头投影, 被管子挡住的不画)
+    R.paths.forEach((pr, k) => {
+      const rim = multi ? css(pcol(k)) : T.rim;
+      const m = mirrorOf(pr);
+      if (m && m.eps && V.endpoints)
+        for (const r of m.eps) if (r.alive && this._inY(r.sw)) this.marks.push({ x: r.sc, y: r.sw, kind: r.kind, rim, alpha: 0.5 });
+      if (pr.eps && V.endpoints)
+        for (const r of pr.eps) if (r.alive && this._inY(r.sw)) this.marks.push({ x: r.sc, y: r.sw, kind: r.kind, rim, alpha: 1 });
+    });
+    if (V.probe) this.marks.push({ probe: true, x: V.probe.x, y: V.probe.y, col: T.probe });
   }
 
   /** 预设视角; 距离按画布宽高比算, 让整个环面 (连同外圈刻度) 正好装进画面 */
@@ -166,6 +350,7 @@ export class TorusView {
       const dpr = Math.min(window.devicePixelRatio || 1, 3);
       this.overlay.width = Math.round(W * dpr); this.overlay.height = Math.round(H * dpr);
       this.W = W; this.H = H; this.dpr = dpr;
+      for (const m of this.lineMats) m.resolution.set(W, H);
       if (!this.userMoved && !this.tween) this.goView(this.lastView || 'oblique', true);
     }
     this.gl.render(this.scene, this.camera);
@@ -174,7 +359,7 @@ export class TorusView {
 
   /** 环面上 (横轴°, 纵轴°) 处的点与外法向 */
   _at(a, v) {
-    const u = a * D2R, w = v * D2R;
+    const ax = this.axes, u = (a - ax.x0) / (ax.x1 - ax.x0) * 2 * Math.PI, w = v * D2R;
     return { p: new THREE.Vector3((RING + TUBE * Math.cos(w)) * Math.cos(u), (RING + TUBE * Math.cos(w)) * Math.sin(u), TUBE * Math.sin(w)),
              n: new THREE.Vector3(Math.cos(w) * Math.cos(u), Math.cos(w) * Math.sin(u), Math.sin(w)) };
   }
@@ -191,22 +376,41 @@ export class TorusView {
     }
     return false;
   }
-  /** 刻度: 横轴沿纵轴起点那一圈 (外赤道) 标, 纵轴沿横轴 0° 那一圈管子标; 只标看得见、不和已标的重叠的 */
+  /** 叠加层: 末端点、位置查看; 刻度 (横轴沿纵轴起点那一圈标, 纵轴沿横轴 0° 那一圈管子标; 只标看得见、不和已标的重叠的) */
   _drawOverlay() {
     const o = this.overlay, ctx = o.getContext('2d'), dpr = this.dpr || 1;
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, o.width, o.height);
     if (!this.axes) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const W = this.W, H = this.H, ax = this.axes;
+    const screen = (a, v, out) => {
+      const { p, n } = this._at(a, v), q = p.addScaledVector(n, out);
+      if (this._hidden(q)) return null;
+      const s = q.project(this.camera);
+      return s.z > 1 ? null : [(s.x + 1) / 2 * W, (1 - s.y) / 2 * H];
+    };
+    for (const m of this.marks) {
+      const s = screen(m.x, m.y, LIFT_MARK);
+      if (!s) continue;
+      if (m.probe) {
+        const [sx, sy] = s;
+        ctx.strokeStyle = m.col; ctx.lineWidth = 2; ctx.beginPath();
+        ctx.moveTo(sx - 8, sy); ctx.lineTo(sx - 3, sy); ctx.moveTo(sx + 3, sy); ctx.lineTo(sx + 8, sy);
+        ctx.moveTo(sx, sy - 8); ctx.lineTo(sx, sy - 3); ctx.moveTo(sx, sy + 3); ctx.lineTo(sx, sy + 8);
+        ctx.stroke();
+        continue;
+      }
+      ctx.save(); ctx.globalAlpha = m.alpha;
+      drawEpGlyphOn(ctx, s[0], s[1], m.kind, m.rim);
+      ctx.restore();
+    }
     const placed = [];
     const label = (a, v, txt, out, strong) => {
-      const { p, n } = this._at(a, v), q = p.addScaledVector(n, out);
-      if (this._hidden(q)) return;
-      const s = q.project(this.camera);
-      if (s.z > 1) return;
+      const s = screen(a, v, out);
+      if (!s) return;
       ctx.font = `${strong ? '600 ' : ''}12px system-ui, sans-serif`;
       const hw = ctx.measureText(txt).width / 2 + 4;                 // 轮廓边上的刻度别被画布边裁掉
-      const x = Math.max(hw, Math.min(W - hw, (s.x + 1) / 2 * W)), y = Math.max(10, Math.min(H - 10, (1 - s.y) / 2 * H));
+      const x = Math.max(hw, Math.min(W - hw, s[0])), y = Math.max(10, Math.min(H - 10, s[1]));
       if (placed.some(b => Math.abs(b[0] - x) < b[2] + hw && Math.abs(b[1] - y) < 15)) return;
       placed.push([x, y, hw]);
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';

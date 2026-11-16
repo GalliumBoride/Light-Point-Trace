@@ -32,6 +32,7 @@ const DEFAULTS = {
   lens: 2, az: 0, el: 10, fov: 180,
   xw: 360, yw: 360, xc: 180, yc: 180,
   arcs: true, mc: true, lines: true, endpoints: true, sym: false,
+  dots: false,                                     // 线上的采样点 (边界点 / 根点): 默认不画, 只画线; 关了连线时照样画点
   lineW: 2, mcSize: 1, checked: [], introDone: false, tab: 'setup', moreOpen: false,
   kz: 1.6, liftRef: 'auto', drops: true, lang: '', zenHalf: false, hlFull: true, liftBase: 'flat', nIce: 1.31, cryPyr: false,
   iso: false, isoW: 'fresnel', isoLv: '', oriTorus: false,
@@ -427,7 +428,7 @@ function viewState(chrome) {
   return {
     W: plot.clientWidth, H: plot.clientHeight, dpr: Math.min(window.devicePixelRatio || 1, 3), theme: theme(),
     view: S.view, lens: S.lens, az: S.az, el: S.el, fov: S.fov, xw: S.xw, yw: S.yw, xc: S.xc, yc: S.yc,
-    mc: S.mc, arcs: S.arcs, lines: S.lines, endpoints: S.endpoints, sym: S.sym,
+    mc: S.mc, arcs: S.arcs, lines: S.lines, endpoints: S.endpoints, sym: S.sym, dots: S.dots,
     lineW: S.lineW, mcSize: S.mcSize, dragging, checked: S.checked, probe: S.view === 1 ? S.probe : null,
     hoverEp: S.hoverEp, chrome, title, famTitle, skyTitle, drops: S.drops, hlFull: S.hlFull, iso: S.iso && S.view !== 1 && S.view !== 2,
     famKey: (pr, name) => (R && R.paths.length > 1 ? pr.name + '·' + name : name),
@@ -1473,7 +1474,7 @@ function initControls() {
   syncChip();
   chip.addEventListener('click', () => { S.endpoints = !S.endpoints; syncChip(); requestRender(); save(); });
   $('btnLayers').addEventListener('click', e => { e.stopPropagation(); togglePop('layersPop', 'btnLayers'); });
-  for (const [id, key] of [['ckArcs', 'arcs'], ['ckMc', 'mc'], ['ckLines', 'lines'], ['ckSym', 'sym']]) {
+  for (const [id, key] of [['ckArcs', 'arcs'], ['ckMc', 'mc'], ['ckLines', 'lines'], ['ckDots', 'dots'], ['ckSym', 'sym']]) {
     $(id).checked = S[key];
     $(id).addEventListener('change', () => { S[key] = $(id).checked; requestRender(); if (key === 'sym') renderCurves(); save(); });
   }

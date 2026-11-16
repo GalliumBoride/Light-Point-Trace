@@ -163,6 +163,8 @@ export default {
     'layers.mc3': 'Ground shadow (landing density)',
     'layers.lines2': 'Join points in order',
     'layers.lines3': 'Boundaries & caustic lines',
+    'layers.dots': 'Sample points on the lines',
+    'layers.dotsTitle': 'The individual computed points along boundaries and caustics (the lines join them). Off by default, lines only; with lines off the points are always shown',
     'layers.sym': 'Mirror fill-in (left/right)',
     'layers.drops': 'Vertical lines from crease to ground',
     'layers.lineW': 'Line width',

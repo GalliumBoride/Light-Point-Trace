@@ -163,6 +163,8 @@ export default {
     'layers.mc3': '地面的影子 (落点密度)',
     'layers.lines2': '按顺序连线',
     'layers.lines3': '边界与焦散线',
+    'layers.dots': '线上的采样点',
+    'layers.dotsTitle': '边界、焦散线上一个个算出来的点 (线就是把它们连起来的). 默认只画线; 关掉连线时点照样画',
     'layers.sym': '左右镜像补全',
     'layers.drops': '折痕到地面的竖直线',
     'layers.lineW': '线宽',
