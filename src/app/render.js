@@ -52,7 +52,9 @@ class Raster {
     if (sa <= 0) return; if (sa > 256) sa = 256;
     const s = this.s, W = this.W, H = this.H;
     const sz = Math.max(1, Math.round(size * s));
-    let x0 = Math.round(x * s) - ((sz - 1) >> 1), y0 = Math.round(y * s) - ((sz - 1) >> 1);
+    // 像素 i 占 [i, i+1); 点块 [x0, x0+sz) 的中心要落在 x·s 上 (矢量线的坐标同此). 原先 round(x·s) − ⌊(sz−1)/2⌋
+    // 让点块整体往右下偏 0.5–1 个像素, 2 px 的点从 2 px 的线下沿露出来, 看着像线旁边另有一串点.
+    let x0 = Math.round(x * s - 0.5 * sz), y0 = Math.round(y * s - 0.5 * sz);
     let x1 = x0 + sz - 1, y1 = y0 + sz - 1;
     if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0;
     if (x1 >= W) x1 = W - 1; if (y1 >= H) y1 = H - 1;
