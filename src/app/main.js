@@ -29,6 +29,7 @@ const DEFAULTS = {
   view: 0, path: '3-1-5', sun: 10, partial: false, mode: 0, fixed: 90,
   apexMode: 0, apexUp: 56.0, apexLo: 56.0, upA: 1, upB: 1, loA: 1, loB: 1,
   real: false, dist: [1, 1, 1, 1, 1, 1], h: 1,
+  hU: 0.5, hL: 0.5,                                // 锥晶: 柱身上下两段截头锥的高 (同 h 的单位)
   lens: 2, az: 0, el: 10, fov: 180,
   xw: 360, yw: 360, xc: 180, yc: 180,
   arcs: true, mc: true, lines: true, endpoints: true, sym: false,
@@ -221,16 +222,21 @@ function readApex() {
 function readReal() {
   const d = S.dist.map(v => (Number.isFinite(v) && v > 0.05 && v <= 5 ? v : 1));
   const h = Number.isFinite(S.h) && S.h > 0.005 && S.h <= 20 ? S.h : 1;
+  const fh = v => (Number.isFinite(v) && v >= 0 && v <= 20 ? v : 0.5);
+  const hU = fh(S.hU), hL = fh(S.hL);
   document.querySelectorAll('[data-d]').forEach((e, i) => e.classList.toggle('invalid', d[i] !== S.dist[i]));
   $('inH').classList.toggle('invalid', h !== S.h);
-  return { d, h };
+  $('inHU').classList.toggle('invalid', hU !== S.hU);
+  $('inHL').classList.toggle('invalid', hL !== S.hL);
+  return { d, h, hU, hL };
 }
 
-function realTag(on, d, h) {
+function realTag(on, d, h, pyr) {
   if (!on) return '';
   const reg = d.every(x => Math.abs(x - 1) <= 1e-9);
   const f = x => String(Math.round(x * 100) / 100);
-  return tr('export.real', { h: Math.round(h * 1000) / 1000, d: reg ? 'd=1' : 'd=[' + d.map(f).join(',') + ']' });
+  return tr('export.real', { h: Math.round(h * 1000) / 1000, d: reg ? 'd=1' : 'd=[' + d.map(f).join(',') + ']' }) +
+         (pyr ? tr('export.realPyr', { u: Math.round(pyr[0] * 1000) / 1000, l: Math.round(pyr[1] * 1000) / 1000 }) : '');
 }
 
 function syncMore(paths) {
@@ -246,7 +252,7 @@ function syncMore(paths) {
   if (Math.abs(S.nIce - 1.31) > 1e-9) tags.append(el('span', '', tr('tag.n', { n: S.nIce })));
   if (pyr) tags.append(el('span', '', tr('tag.apex', { deg: S.apexUpEff.toFixed(1) })));
   if (S.real) tags.append(el('span', '', tr('tag.real')));
-  if (S.real && paths && paths.length && !paths.some(apSupports))
+  if (S.real && paths && paths.length && !paths.some(p => apSupports(p, !!S.cryPyr)))
     tags.append(el('span', '', tr('tag.realNoEffect')));
   if (pyr) S.cryPyr = true;                      // 光路用了锥面: 晶体图自动换成锥晶, 才点得到那些面
   syncCrystal();
@@ -259,6 +265,7 @@ function syncCrystal() {
     b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));
   });
   crystal.setShape(!!S.cryPyr, S.apexUpEff ?? 56, S.apexLoEff ?? 56);
+  document.querySelectorAll('.pyr-only').forEach(e => { e.hidden = !S.cryPyr; });   // 锥台高只在锥晶时有意义
 }
 
 function compute() {
@@ -279,13 +286,13 @@ function compute() {
   S.path = $('inPath').value.trim(); S.sun = sun; S.nIce = nIce;
   setIndex(nIce);
   readApex();
-  const { d, h } = readReal();
+  const { d, h, hU, hL } = readReal();
   syncMore(paths);
   const { om, fx } = modeParams(S.mode, S.fixed);
   setSun(sun);
   const zenHalf = S.mode === 3 && S.zenHalf;
   LP.zenHalf = zenHalf;                          // 主线程里也要知道取向平面的 ζ 范围 (画轴、回到全图)
-  const cfg = { sun, n: nIce, partial: S.partial, apexUp: S.apexUpEff, apexLo: S.apexLoEff, aperture: { on: S.real, dist: d, h }, zenHalf };
+  const cfg = { sun, n: nIce, partial: S.partial, apexUp: S.apexUpEff, apexLo: S.apexLoEff, aperture: { on: S.real, dist: d, h, pyr: !!S.cryPyr, hU, hL }, zenHalf };
   if (om + '|' + zenHalf !== lastAxes) { lastAxes = om + '|' + zenHalf; resetOriView(); }
   const dof3 = rangeSpec();
   const twoDof = !dof3 && (S.mode === 0 || S.mode === 3);
@@ -301,14 +308,14 @@ function compute() {
   const job = pool.compute(tasks);
   Rnext = {
     job, t0: performance.now(),
-    params: { sun, n: nIce, partial: S.partial, mode: S.mode, fixed: S.fixed, om, fx, twoDof, real: S.real, h, realTag: realTag(S.real, d, h), zenHalf,
+    params: { sun, n: nIce, partial: S.partial, mode: S.mode, fixed: S.fixed, om, fx, twoDof, real: S.real, h, realTag: realTag(S.real, d, h, S.cryPyr ? [hU, hL] : null), zenHalf,
               dof3: dof3 ? { ...dof3, zenHalf } : null },
     paths: prs, oriLocal: null, clouds: new Map(), requestCloud,
   };
   S.probe = null; S.hoverEp = null; $('probeCard').hidden = true;
   setStatus('busy', 'status.busy');
   $('progress').classList.add('on');
-  crystal.set(d, h, paths[0]);
+  crystal.set(d, h, paths[0], hU, hL);
   renderCrumbs(paths);
   save();
 }
@@ -1458,10 +1465,13 @@ function initControls() {
   });
   $('inH').value = S.h;
   bindNum('inH', v => { S.h = v; compute(); });
+  $('inHU').value = S.hU; $('inHL').value = S.hL;
+  bindNum('inHU', v => { S.hU = v; compute(); });
+  bindNum('inHL', v => { S.hL = v; compute(); });
   $('btnRealReset').addEventListener('click', () => {
-    S.dist = [1, 1, 1, 1, 1, 1]; S.h = 1;
+    S.dist = [1, 1, 1, 1, 1, 1]; S.h = 1; S.hU = 0.5; S.hL = 0.5;
     document.querySelectorAll('[data-d]').forEach(e => { e.value = 1; });
-    $('inH').value = 1;
+    $('inH').value = 1; $('inHU').value = 0.5; $('inHL').value = 0.5;
     compute();
   });
 
@@ -1521,7 +1531,8 @@ function initControls() {
   bindNum('inN', () => compute());
   $('btnNReset').addEventListener('click', () => { $('inN').value = 1.31; compute(); });
   document.querySelectorAll('#crySeg button').forEach(b => b.addEventListener('click', () => {
-    S.cryPyr = b.dataset.cry === '1'; syncCrystal(); save();
+    S.cryPyr = b.dataset.cry === '1'; syncCrystal();
+    if (S.real) compute(); else save();          // 真实晶体: 棱柱 / 锥晶是两块不同的晶体, 要重算
   }));
   $('ckHlFull').checked = S.hlFull;
   $('ckHlFull').addEventListener('change', () => { S.hlFull = $('ckHlFull').checked; requestRender(); save(); });
@@ -1566,7 +1577,7 @@ function initControls() {
 
   syncMode(); syncView(); syncCam(); readApex(); syncMore(parsePaths(S.path));
   renderChain();
-  crystal.set(readReal().d, readReal().h, (parsePaths(S.path) || [[]])[0]);
+  { const r = readReal(); crystal.set(r.d, r.h, (parsePaths(S.path) || [[]])[0], r.hU, r.hL); }
 }
 
 function setTab(t) {

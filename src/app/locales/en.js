@@ -105,7 +105,9 @@ export default {
     'more.lowerMb': 'Lower pyramid Miller b',
     'more.real': 'Real crystal size',
     'more.realQ': 'Real crystal',
-    'more.realNote': 'Treats the crystal as a hexagonal prism of finite size and cuts away the arc segments light can’t get through. The crystal drawing changes shape to match.',
+    'more.realNote': 'Treats the crystal as a hexagonal prism of finite size and cuts away the arc segments light can’t get through; with the Pyramid crystal picked, truncated pyramids are added above and below (h↑ / h↓ are their heights). The crystal drawing changes shape to match.',
+    'more.hU': 'Upper frustum height: the truncated hexagonal pyramid above the prism (same units as h); past the apex height the top face vanishes and the pyramid is pointed',
+    'more.hL': 'Lower frustum height: the truncated pyramid below the prism; 0 = no lower pyramid',
     'more.realReset': 'Reset all to 1',
     'tag.apex': 'Pyramid {deg}°',
     'tag.n': 'n = {n}',
@@ -441,6 +443,7 @@ export default {
     'export.pure': 'TIR only',
     'export.partial': 'partial reflection',
     'export.real': ' · real crystal h={h} {d}',
+    'export.realPyr': ' frustums {u}/{l}',
     'export.ori': ' · orientation plane',
     'legend.path': 'Light path {name}',
     'preset.sun': 'Sun {v}°',
@@ -775,9 +778,10 @@ export default {
     },
     realcrystal: {
       name: 'Real crystal',
-      short: 'Treats the crystal as a hexagonal prism with a real size and keeps only the parts of the arc light can get through. d3–d8 are the distances from the six prism faces to the central axis (1 = regular hexagonal prism); h is the half-height (in units of the circumradius).',
+      short: 'Treats the crystal as a hexagonal prism with a real size and keeps only the parts of the arc light can get through. d3–d8 are the distances from the six prism faces to the central axis (1 = regular hexagonal prism); h is the half-height (in units of the circumradius). With the Pyramid crystal picked, a truncated hexagonal pyramid is added above and below the prism; h↑ / h↓ are their heights.',
       body: [
-        'Only affects light paths that enter and exit through prism faces, passing prism or basal faces in between; paths that enter or exit through pyramid or basal faces are unaffected.',
+        'Hexagonal prism: only affects light paths that enter and exit through prism faces, passing prism or basal faces in between (closed form); paths that enter or exit through pyramid or basal faces are unaffected.',
+        'Pyramid crystal: every face sequence counts, including entry or exit through pyramid and basal faces. The pyramid faces pass through the prism’s top and bottom edges, and the basal faces sit on top of the frustums; a frustum height of 0 means no pyramid on that side, and past the apex height the basal face vanishes (a pointed tip). The test is just as exact: the entry points that get through form a convex polygon on the entry face, and where it shrinks to a point is the aperture boundary.',
       ],
     },
     apex: {

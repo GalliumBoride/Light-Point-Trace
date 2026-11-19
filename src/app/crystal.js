@@ -1,12 +1,50 @@
 // 六棱柱预览: 面距 d3..d8 + 半高 h (与引擎同一套面号/法向约定: 面 f 法向方位 = BETA[f], 面距 (√3/2)·d).
-// 可切换成锥晶: 上下各接一段截头六棱锥 (锥面 13–18 / 23–28 在柱面 3–8 之上/下, 法向仰角 = 顶角/2, 同 faceCoef).
+// 可切换成锥晶: 上下各接一段截头六棱锥 (锥面 13–18 / 23–28 在柱面 3–8 之上/下, 法向仰角 = 顶角/2, 同 faceCoef);
+// 锥台高 hU / hL (真实晶体里的 h↑ / h↓), 形状直接取孔径引擎的半空间表 (crystalPlanes).
 // 单击晶面 → 回调 (加入光路); 拖动旋转. 当前首条光路的面着色: 入射绿 / 中间蓝 / 出射红.
 
 import { t } from './i18n.js';
 import { BETA } from '../engine/lp.js';
+import { crystalPlanes } from '../engine/aperture.js';
 
 const RING = [3, 8, 7, 6, 5, 4];          // 逆时针棱序
 const SQ32 = Math.sqrt(3) / 2;
+
+/** 半空间表 → 各面多边形 (三面求交得顶点, 留在全部半空间里的; 每面的顶点绕外法向逆时针排), 竖直方向居中 */
+function polyFaces(pl) {
+  const F = pl.faces.length, V = [];
+  for (let i = 0; i < F; i++)
+    for (let j = i + 1; j < F; j++)
+      for (let k = j + 1; k < F; k++) {
+        const [a, b, c] = [pl.n[i], pl.n[j], pl.n[k]];
+        const det = a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0]);
+        if (Math.abs(det) < 1e-9) continue;
+        const r = [pl.r[i], pl.r[j], pl.r[k]], col = (u, v, w) => u[0] * (v[1] * w[2] - v[2] * w[1]) - u[1] * (v[0] * w[2] - v[2] * w[0]) + u[2] * (v[0] * w[1] - v[1] * w[0]);
+        const cx = [r[0], a[1], a[2]], cy = [a[0], r[0], a[2]], cz = [a[0], a[1], r[0]];
+        const bx = [r[1], b[1], b[2]], by = [b[0], r[1], b[2]], bz = [b[0], b[1], r[1]];
+        const kx = [r[2], c[1], c[2]], ky = [c[0], r[2], c[2]], kz = [c[0], c[1], r[2]];
+        const p = [col(cx, bx, kx) / det, col(cy, by, ky) / det, col(cz, bz, kz) / det];
+        if (pl.n.some((m, f) => m[0] * p[0] + m[1] * p[1] + m[2] * p[2] > pl.r[f] + 1e-9)) continue;
+        if (!V.some(q => Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]) < 1e-7)) V.push(p);
+      }
+  let zlo = Infinity, zhi = -Infinity;
+  for (const p of V) { zlo = Math.min(zlo, p[2]); zhi = Math.max(zhi, p[2]); }
+  const zc = (zlo + zhi) / 2, out = [];
+  for (let i = 0; i < F; i++) {
+    const nf = pl.n[i], vs = V.filter(p => Math.abs(nf[0] * p[0] + nf[1] * p[1] + nf[2] * p[2] - pl.r[i]) < 1e-7);
+    if (vs.length < 3) continue;
+    const cen = [0, 1, 2].map(a => vs.reduce((s, p) => s + p[a], 0) / vs.length);
+    let u = [-nf[1], nf[0], 0];
+    if (Math.hypot(...u) < 1e-6) u = [0, -nf[2], nf[1]];
+    const ul = Math.hypot(...u); u = u.map(x => x / ul);
+    const v = [nf[1] * u[2] - nf[2] * u[1], nf[2] * u[0] - nf[0] * u[2], nf[0] * u[1] - nf[1] * u[0]];
+    const ang = p => Math.atan2((p[0] - cen[0]) * v[0] + (p[1] - cen[1]) * v[1] + (p[2] - cen[2]) * v[2],
+                                (p[0] - cen[0]) * u[0] + (p[1] - cen[1]) * u[1] + (p[2] - cen[2]) * u[2]);
+    vs.sort((p, q) => ang(p) - ang(q));
+    out.push({ f: pl.faces[i], n: nf, pts: vs.map(p => [p[0], p[1], p[2] - zc]) });
+  }
+  return out;
+}
 
 export class CrystalPreview {
   constructor(canvas, onFace) {
@@ -48,7 +86,7 @@ export class CrystalPreview {
     new ResizeObserver(() => this.draw()).observe(canvas);
   }
 
-  set(dist, h, faces) {
+  set(dist, h, faces, hU = 0.5, hL = 0.5) {
     faces = faces || [];
     // 光路换了: 把视角转到所用柱面的平均方向, 入射/出射面都朝向观者
     if (faces.join('-') !== this.faces.join('-')) {
@@ -56,7 +94,7 @@ export class CrystalPreview {
       for (const f of faces) { const b = BETA[f] ?? BETA[f % 10]; if (b !== undefined) { x += Math.cos(b); y += Math.sin(b); } }
       if (Math.hypot(x, y) > 1e-6) this.yaw = Math.atan2(y, x);
     }
-    this.dist = dist.slice(); this.h = h; this.faces = faces;
+    this.dist = dist.slice(); this.h = h; this.faces = faces; this.hU = hU; this.hL = hL;
     this.draw();
   }
 
@@ -83,6 +121,9 @@ export class CrystalPreview {
   }
 
   geometry() {
+    // 锥晶: 与孔径引擎同一张半空间表 (锥面过柱面上/下棱, 顶面/底面在锥台顶上), 顶点枚举出各面多边形 —
+    // 图上的晶体就是算孔径用的那块; 锥台高 0 的一侧没有锥面, 超过锥顶高时顶面消失 (尖顶)
+    if (this.pyr) return polyFaces(crystalPlanes(this.dist, this.h, true, this.hU ?? 0.5, this.hL ?? 0.5, this.apexUp, this.apexLo));
     const n = {}, r = {};
     for (const f of RING) { n[f] = [Math.cos(BETA[f]), Math.sin(BETA[f])]; r[f] = SQ32 * this.dist[f - 3]; }
     const hexAt = s => {                         // 六个面距都缩进 s 后的截面 (s = 0 即柱身)
@@ -95,28 +136,13 @@ export class CrystalPreview {
       return poly;
     };
     const poly = hexAt(0);
-    const H = this.pyr ? 0.55 * this.h : this.h, faces = [];
+    const H = this.h, faces = [];
     for (let i = 0; i < 6; i++) {
       const p = poly[(i + 5) % 6], q = poly[i], f = RING[i];
       faces.push({ f, n: [n[f][0], n[f][1], 0], pts: [[p[0], p[1], -H], [q[0], q[1], -H], [q[0], q[1], H], [p[0], p[1], H]] });
     }
-    if (!this.pyr) {
-      faces.push({ f: 1, n: [0, 0, 1], pts: poly.map(p => [p[0], p[1], H]) });
-      faces.push({ f: 2, n: [0, 0, -1], pts: poly.slice().reverse().map(p => [p[0], p[1], -H]) });
-      return faces;
-    }
-    // 锥面: 每升高 1, 面距缩 tan(顶角/2); 截平处面距最多缩掉 75%, 锥段最高 1 (尖顶角时不至于拉成一根针), 留一块底面 1 / 2
-    const rmin = Math.min(...RING.map(f => r[f]));
-    for (const [sg, apex, off, fb] of [[1, this.apexUp, 10, 1], [-1, this.apexLo, 20, 2]]) {
-      const d = apex / 2 * Math.PI / 180, s = Math.min(0.75 * rmin, Math.tan(d)), top = hexAt(s);
-      const z0 = sg * H, z1 = sg * (H + s / Math.tan(d));
-      for (let i = 0; i < 6; i++) {
-        const p = poly[(i + 5) % 6], q = poly[i], p2 = top[(i + 5) % 6], q2 = top[i], f = RING[i];
-        faces.push({ f: off + f, n: [n[f][0] * Math.cos(d), n[f][1] * Math.cos(d), sg * Math.sin(d)],
-                     pts: [[p[0], p[1], z0], [q[0], q[1], z0], [q2[0], q2[1], z1], [p2[0], p2[1], z1]] });
-      }
-      faces.push({ f: fb, n: [0, 0, sg], pts: (sg > 0 ? top : top.slice().reverse()).map(p => [p[0], p[1], z1]) });
-    }
+    faces.push({ f: 1, n: [0, 0, 1], pts: poly.map(p => [p[0], p[1], H]) });
+    faces.push({ f: 2, n: [0, 0, -1], pts: poly.slice().reverse().map(p => [p[0], p[1], -H]) });
     return faces;
   }
 

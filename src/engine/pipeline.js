@@ -23,6 +23,9 @@ export function setConfig(cfg) {
   AP.on = !!ap.on;
   AP.H = Number.isFinite(ap.h) ? ap.h : 1;
   AP.dist = (ap.dist && ap.dist.length === 6) ? ap.dist.slice() : [1, 1, 1, 1, 1, 1];
+  AP.pyr = !!ap.pyr;                                // 锥晶: 柱身上下各接一段截头六棱锥 (通用凸多面体孔径)
+  AP.hU = Number.isFinite(ap.hU) && ap.hU >= 0 ? ap.hU : 0.5;
+  AP.hL = Number.isFinite(ap.hL) && ap.hL >= 0 ? ap.hL : 0.5;
 }
 
 export const isTwoDof = modeIdx => modeIdx === 0 || modeIdx === 3;

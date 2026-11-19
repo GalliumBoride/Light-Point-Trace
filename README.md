@@ -33,7 +33,7 @@ You can choose:
 - **Blue edge** (allow partial reflection).
 - **Refractive index** (default 1.31).
 - **Pyramid faces**: by apex angle or Miller index. The crystal picker can show a pyramidal crystal, so faces 13–18 / 23–28 can be clicked into the path.
-- **Real crystal size**: finite prism, aperture boundaries.
+- **Real crystal size**: finite prism, aperture boundaries. With the pyramid crystal picked, truncated pyramids of adjustable height (h↑ / h↓) are added above and below the prism, and every face sequence (entry or exit through pyramid or basal faces too) is clipped by an exact linear program on the entry face.
 - **Sky camera**: six projections; view direction and field of view can be typed in the left panel.
 
 A built-in glossary explains every term in plain language first, symbols last. The interface is available in Chinese and English.
