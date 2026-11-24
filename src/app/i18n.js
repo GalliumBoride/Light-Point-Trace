@@ -8,17 +8,15 @@ export const LANGS = [
   { code: 'zh-CN', label: '中文', dict: zhCN },
   { code: 'en', label: 'English', dict: en },
 ];
-let cur = LANGS[0];
+let cur = LANGS[1];                    // 默认英文
 
-/** 记住的语言, 否则浏览器首选中文就用中文, 其余用英文. */
+/** 访客自己选过的语言; 否则一律英文 (默认语言是英文, 不看浏览器语言). */
 export function detectLang(saved) {
-  if (saved && LANGS.some(l => l.code === saved)) return saved;
-  const first = String((navigator.languages && navigator.languages[0]) || navigator.language || '').toLowerCase();
-  return first.startsWith('zh') ? 'zh-CN' : 'en';
+  return saved && LANGS.some(l => l.code === saved) ? saved : 'en';
 }
 
 export function setLang(code) {
-  cur = LANGS.find(l => l.code === code) || LANGS[0];
+  cur = LANGS.find(l => l.code === code) || LANGS[1];
   document.documentElement.lang = cur.code;
   return cur.code;
 }

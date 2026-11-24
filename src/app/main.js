@@ -10,6 +10,7 @@ import { apexDegFromMiller, millerFromApexDeg, setSun, setIndex, axesMeta, isPyr
 import { apSupports } from '../engine/aperture.js';
 import { term, famInfo, skyName, epLabel, EP_KINDS } from './terms.js';
 import { classifyPath } from '../engine/classify.js';
+import { createTour } from './tour.js';
 import { PRESETS } from './presets.js';
 import { initGlossary } from './glossary.js';
 import { View3D, KIND3D } from './view3d.js';
@@ -35,7 +36,7 @@ const DEFAULTS = {
   arcs: true, mc: true, lines: true, endpoints: true, sym: false,
   dots: false,                                     // 线上的采样点 (边界点 / 根点): 默认不画, 只画线; 关了连线时照样画点
   lineW: 2, mcSize: 1, checked: [], introDone: false, tab: 'setup', moreOpen: false,
-  kz: 1.6, liftRef: 'auto', drops: true, lang: '', zenHalf: false, hlFull: true, liftBase: 'flat', nIce: 1.31, cryPyr: false,
+  kz: 1.6, liftRef: 'auto', drops: true, lang: '', langPicked: false, tourSeen: false, zenHalf: false, hlFull: true, liftBase: 'flat', nIce: 1.31, cryPyr: false,
   iso: false, isoW: 'fresnel', isoLv: '', oriTorus: false,
   range: false, fixed2: 75,                       // 三自由度: 第三个角放开到 [fixed, fixed2] (板晶: 摆幅 0–fixed2)
   ruled: false, ruledSel: [],                     // 天球视图的直纹曲面; 2DOF 时画哪些边界 (族键)
@@ -84,7 +85,7 @@ const d3ViewOn = () => d3On() && (S.view === 1 || S.view === 2);
 view3d.kz = S.kz;
 view3d.base = S.liftBase === 'sphere' ? 'sphere' : 'flat';
 view3d.onHover = h => readout3d(h);
-S.lang = setLang(detectLang(S.lang));          // 记住的语言, 否则按浏览器语言
+S.lang = setLang(S.langPicked ? detectLang(S.lang) : 'en');   // 默认英文; 只有访客自己在菜单里选过才记住
 const glossary = initGlossary();
 const crystal = new CrystalPreview($('cvCrystal'), f => appendFace(f));
 const realCry = new CrystalPreview($('cvReal'), null);   // 「真实晶体尺寸」里只展示的那块晶体
@@ -1082,6 +1083,7 @@ function clearProbe() { S.probe = null; $('probeCard').hidden = true; requestRen
 // ============================================================ 界面语言
 function localize() {
   applyI18n();
+  if (typeof tour !== 'undefined' && tour) tour.relocalize();
   document.title = tr('app.title');
   $('metaDesc').setAttribute('content', tr('app.desc'));
   $('selLang').value = S.lang;
@@ -1103,6 +1105,7 @@ function localize() {
 }
 
 function setLanguage(code) {
+  S.langPicked = true;
   S.lang = setLang(code);
   localize();
   save();
@@ -1332,6 +1335,22 @@ function buildPresets() {
     b.addEventListener('click', () => applyPreset(p));
     box.append(b);
   }
+}
+
+/** 教程用的演示状态: 光路 / 取向 / 太阳 / 视图一次摆好 (蓝边、真实晶体关掉, 免得画面和讲的不一样) */
+function tourDemo(p) {
+  closePops();
+  S.partial = false; $('ckPartial').checked = false;
+  S.real = false; $('ckReal').checked = false;
+  S.mode = p.mode; S.fixed = p.fixed; S.sun = p.sun; S.sym = true; S.zenHalf = false; S.range = false;
+  $('inSun').value = p.sun; $('slSun').value = p.sun; $('ckSym').checked = true;   // 镜像那一半也画上: 幻日要成对
+  for (const k of ['lens', 'az', 'el', 'fov', 'xw', 'yw', 'xc', 'yc']) S[k] = DEFAULTS[k];     // 相机回到默认, 免得重看教程时还是放大的
+  clampFov(); syncCam();
+  syncMode();
+  S.view = p.view; S.oriTorus = false;
+  syncView();
+  setPathText(p.path);
+  compute();
 }
 
 function applyPreset(p) {
@@ -1567,6 +1586,7 @@ function initControls() {
   $('btnProbeClose').addEventListener('click', clearProbe);
   $('btnIntroClose').addEventListener('click', () => { S.introDone = true; $('intro').hidden = true; save(); });
   $('btnGlossary').addEventListener('click', () => glossary.open());
+  $('btnTour').addEventListener('click', () => tour.open(1));
   $('btnExport').addEventListener('click', exportPng);
   document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
   setTab(S.tab);
@@ -1615,3 +1635,7 @@ new ResizeObserver(requestRender).observe($('plot'));
 renderRead();
 updateReadout(null);
 compute();
+// 新手教程: 第一次来自动弹欢迎卡; 顶栏「教程」随时重来
+var tour = createTour({ S, t: tr, setTab, demo: tourDemo, probeAt: probeDeg, getR: () => R,
+                        openMore: () => { $('more').open = true; }, save });
+if (!S.tourSeen) setTimeout(() => tour.open(0), 900);
