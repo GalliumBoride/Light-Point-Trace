@@ -87,6 +87,7 @@ view3d.onHover = h => readout3d(h);
 S.lang = setLang(detectLang(S.lang));          // 记住的语言, 否则按浏览器语言
 const glossary = initGlossary();
 const crystal = new CrystalPreview($('cvCrystal'), f => appendFace(f));
+const realCry = new CrystalPreview($('cvReal'), null);   // 「真实晶体尺寸」里只展示的那块晶体
 let R = null, Rnext = null;
 LP.zenHalf = S.mode === 3 && S.zenHalf;
 let lastAxes = modeParams(S.mode, S.fixed).om + '|' + LP.zenHalf;   // 取向平面的轴 (模式 + ζ 范围) 变了就回到全图
@@ -139,7 +140,7 @@ function renderName() {
   const faces = groups.length ? groups[0].split('-').filter(Boolean).map(Number) : [];
   card.hidden = faces.length < 2 || faces.some(f => !Number.isInteger(f));
   if (card.hidden) return;
-  const c = classifyPath(faces);
+  const c = classifyPath(faces, { partial: !!S.partial, orient: S.mode });   // 同一片晕只列当前反射规则下真能走通的光路
   if (!c) { box.append(el('p', 'foot', tr(faces.some(f => f > 8) ? 'name.pyr' : 'name.none'))); return; }
   $('nameAside').textContent = tr('name.row', { n: c.row });
   const grid = el('div', 'name-grid');
@@ -175,6 +176,7 @@ function renderName() {
   const k = NAME_KEYS[S.mode];
   same.append(el('span', 'lbl', tr(k === 'parry' || k === 'lowitz' ? 'name.same.' + k : 'name.same', { o: oName })));
   if (!sm.paths.length) same.append(el('span', 'none', tr('name.sameNone')));
+  if (sm.needPartial) same.append(el('span', 'none', tr('name.needPartial')));
   for (const p of sm.paths.slice(0, 12)) {
     const b = el('button', 'pchip', p);
     b.title = tr('name.load', { p });
@@ -265,6 +267,7 @@ function syncCrystal() {
     b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));
   });
   crystal.setShape(!!S.cryPyr, S.apexUpEff ?? 56, S.apexLoEff ?? 56);
+  realCry.setShape(!!S.cryPyr, S.apexUpEff ?? 56, S.apexLoEff ?? 56);
   document.querySelectorAll('.pyr-only').forEach(e => { e.hidden = !S.cryPyr; });   // 锥台高只在锥晶时有意义
 }
 
@@ -316,6 +319,7 @@ function compute() {
   setStatus('busy', 'status.busy');
   $('progress').classList.add('on');
   crystal.set(d, h, paths[0], hU, hL);
+  realCry.set(d, h, paths[0], hU, hL);
   renderCrumbs(paths);
   save();
 }
@@ -1441,7 +1445,7 @@ function initControls() {
   $('more').open = !!S.moreOpen;
   $('more').addEventListener('toggle', () => { S.moreOpen = $('more').open; save(); });
   $('ckPartial').checked = S.partial;
-  $('ckPartial').addEventListener('change', () => { S.partial = $('ckPartial').checked; compute(); });
+  $('ckPartial').addEventListener('change', () => { S.partial = $('ckPartial').checked; compute(); renderName(); });   // 名字卡片里列的光路随反射规则变
   const apexInputs = [['inUpDeg', 'apexUp'], ['inLoDeg', 'apexLo'], ['inUpA', 'upA'], ['inUpB', 'upB'], ['inLoA', 'loA'], ['inLoB', 'loB']];
   for (const [id, key] of apexInputs) {
     $(id).value = S[key];
@@ -1577,7 +1581,7 @@ function initControls() {
 
   syncMode(); syncView(); syncCam(); readApex(); syncMore(parsePaths(S.path));
   renderChain();
-  { const r = readReal(); crystal.set(r.d, r.h, (parsePaths(S.path) || [[]])[0], r.hU, r.hL); }
+  { const r = readReal(), p0 = (parsePaths(S.path) || [[]])[0]; crystal.set(r.d, r.h, p0, r.hU, r.hL); realCry.set(r.d, r.h, p0, r.hU, r.hL); }
 }
 
 function setTab(t) {

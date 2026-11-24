@@ -69,7 +69,7 @@ export class CrystalPreview {
         }
         return;
       }
-      const f = this.faceAt(e);
+      const f = this.onFace ? this.faceAt(e) : 0;           // 只展示的图 (没有点面回调) 不加亮、不提示点面
       if (f !== this.hover) { this.hover = f; this.draw(); }
       canvas.title = f ? t('crystal.tipFace', { f }) : t('crystal.tipDrag');
     });

@@ -318,6 +318,17 @@ export function apertureEndpoints(P, ori, om, fx) {
   const dS = SCs[1] - SCs[0], dW = SWs[1] - SWs[0];
   const tolD = 1.2 * Math.max(Math.abs(dS), Math.abs(dW));
   const at = (G, iw, isc) => G[iw * nS + isc];
+  // 横穿判据: 两条线在这里真的交叉 (法向夹角的正弦 > 0.02, 约 1°). 孔径边界有时整段与某条光点边界重合
+  // (例: Lowitz 3-1-5, 入射窗口在接缝 q1 = 0 处正比于 −q1 缩到零 — 孔径边界就是接缝本身), 重合段上两边的值都在 0 附近抖,
+  // 两个来源都会沿着它吐出一长串假末端点. 重合 / 相切处法向平行, 不算末端点 (那里本来就由光点边界截断, 孔径不另外剪).
+  const transversal = (fa, fb, u, v) => {
+    const e = 1e-5;
+    const ax1 = (fa(u + e, v) - fa(u - e, v)) / (2 * e), ay1 = (fa(u, v + e) - fa(u, v - e)) / (2 * e);
+    const ax2 = (fb(u + e, v) - fb(u - e, v)) / (2 * e), ay2 = (fb(u, v + e) - fb(u, v - e)) / (2 * e);
+    const n1 = Math.hypot(ax1, ay1), n2 = Math.hypot(ax2, ay2);
+    if (!(n1 > 0 && n2 > 0)) return false;
+    return Math.abs(ax1 * ay2 - ay1 * ax2) / (n1 * n2) > 0.02;
+  };
   // ---- 源 A: 沿孔径篱笆等值线走, 有效性翻转处 = 弧真正的断点 (与绘制弧线时的切断逻辑同源) ----
   {
     const apFV = (x, y) => famValue(apFam, P, om, fx, x, y);
@@ -350,7 +361,15 @@ export function apertureEndpoints(P, ori, om, fx) {
             const av = Math.abs(famValue(fq, P, om, fx, u2, v2));
             if (!Number.isNaN(av) && av < bestA) { bestA = av; owner = fq; }
           }
-          addEp(res, P, om, fx, u2, v2, tolD, '孔径∩' + (owner !== null ? owner.name : 'Ω边界'));
+          // 真有一条约束线在这里横穿孔径边界 (一格之内、不平行) 才算; 孔径边界与某条光点边界重合时, 沿重合段的有效性翻转只是抖动
+          let crosses = false;
+          for (const fq of ori.fams) {
+            if (fq.kind > 3) continue;
+            const Fq = (x, y) => famValue(fq, P, om, fx, x, y), val = Fq(u2, v2), e = 1e-5;
+            const gl = Math.hypot((Fq(u2 + e, v2) - Fq(u2 - e, v2)) / (2 * e), (Fq(u2, v2 + e) - Fq(u2, v2 - e)) / (2 * e));
+            if (Number.isFinite(val) && gl > 0 && Math.abs(val) / gl < tolD && transversal(Fq, apFV, u2, v2)) { crosses = true; break; }
+          }
+          if (crosses) addEp(res, P, om, fx, u2, v2, tolD, '孔径∩' + (owner !== null ? owner.name : 'Ω边界'));
         }
         prevP = pt; prevOk2 = ok2;
       }
@@ -428,6 +447,7 @@ export function apertureEndpoints(P, ori, om, fx) {
           if (!(sN <= resid(ub, vb))) { u = ub; v = vb; }
           // 其余光点判据必须成立 (否则这段弧本来就不存在)
           if (!validLp(P, om, fx, u, v, 1e-6)) continue;
+          if (!transversal(tFam, tMargin, u, v)) continue;
           addEp(res, P, om, fx, u, v, tolD, '孔径∩' + fm.name);
         }
       }

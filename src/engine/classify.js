@@ -13,6 +13,7 @@
 // 这里先换成表的面号再算, 输出时换回来. 名字不受影响 (镜像只改名字里的 M, 界面不显示 M).
 
 import { ARC_ROWS } from './arcnames.js';
+import { ARC_PHYS } from './arcphys.js';
 
 const S3 = Math.sqrt(3) / 2;
 const NORM = { 1: [0, 0, 1], 2: [0, 0, -1], 3: [1, 0, 0], 4: [0.5, S3, 0], 5: [-0.5, S3, 0], 6: [-1, 0, 0], 7: [-0.5, -S3, 0], 8: [0.5, -S3, 0] };
@@ -176,12 +177,128 @@ function mirrorKind(g, e, O) {
 const stripM = s => s.replace(/ M$/, '');
 const toWeb = f => WEB2K[f];
 
+// ---------- 一行的真实光路 (同 C# ArcClassifierForm 的反向生成: MotherSurfaceKernel.ReverseGenerate + 签名 + CheckReachability)
+// 表里每行的 Raypath 只是代表 (入射面 + 最短反射序列 + 出射面, 按群的代数算出来), 常常没有任何取向能走通 — 不能拿给人用.
+// 真光路 = 签名与这一行相同的 (入射面, 出射面) 对 × 合成镜相同的反射序列, 再要求某个光线方向能依次走通 (可达).
+// 取能走通的最短长度上的全部序列 (同一行常有两条互补的, 如 4-6-3 与 4-3-6, 只取一条会丢光).
+const STATES = (() => {                                                    // 群的 12 个元素 (g, e) 与最短距离表
+  const els = [];
+  for (const g of GN) for (const e of [0, 1]) els.push(gmat(g, e));
+  const idx = M => els.findIndex(A => close(A, M));
+  const next = els.map(A => { const row = [0]; for (let f = 1; f <= 8; f++) row.push(idx(mul(FREFL[f], A))); return row; });
+  const dist = els.map((_, s) => {
+    const d = new Array(12).fill(99); d[s] = 0;
+    const q = [s];
+    while (q.length) { const c = q.shift(); for (let f = 1; f <= 8; f++) { const n = next[c][f]; if (d[n] > d[c] + 1) { d[n] = d[c] + 1; q.push(n); } } }
+    return d;
+  });
+  return { els, idx, next, dist };
+})();
+const SIG_PAIRS = (() => {                                                 // 签名|群元 → [(入射面, 出射面)] (同 C# BuildSigGepsPairsTable)
+  const map = new Map();
+  for (const g of GN) for (const e of [0, 1]) {
+    const seq = MINSEQ.get(g + e);
+    for (let en = 1; en <= 8; en++) for (let ex = 1; ex <= 8; ex++) {
+      const k = signature([en, ...seq, ex]) + '|' + g + e;
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push([en, ex]);
+    }
+  }
+  return map;
+})();
+const COS_TC = Math.cos(Math.asin(1 / N_TABLE));
+/**
+ * 同 C# CheckReachability: 球冠约束 (入射: 折射后方向在 −n_e 的临界锥里; 每次反射: 朝着那面走; 出射: 在 n_x 的临界锥里) 有没有公共点.
+ * C# 只要求打得到那面 (= 允许部分反射); tir = true 时每次反射再加一个球冠「入射角 ≥ 临界角」(d·n ≤ cosθc ⟺ d·(−n) ≥ −cosθc),
+ * 就是界面默认的全反射规则. 同一个找点办法 (40 个起点的坐标下降), 也同样把约束都表示成最后那段光的方向.
+ */
+function reachable(path, tir = false) {
+  if (path.length < 2) return false;
+  const caps = [[NORM[path[0]].map(v => -v), COS_TC]];
+  for (let i = 1; i < path.length - 1; i++) {
+    const n = NORM[path[i]];
+    caps.push([n.slice(), 0]);
+    if (tir) caps.push([n.map(v => -v), -COS_TC]);
+    for (const c of caps) { const d = dot(c[0], n); c[0] = [c[0][0] - 2 * d * n[0], c[0][1] - 2 * d * n[1], c[0][2] - 2 * d * n[2]]; }
+  }
+  caps.push([NORM[path[path.length - 1]].slice(), COS_TC]);
+  const acos = x => Math.acos(Math.max(-1, Math.min(1, x)));
+  for (let i = 0; i < caps.length; i++)
+    for (let j = i + 1; j < caps.length; j++)
+      if (acos(caps[i][1]) + acos(caps[j][1]) < acos(dot(caps[i][0], caps[j][0])) - 1e-9) return false;
+  const worst = (t, p) => {
+    const d = [Math.sin(t) * Math.cos(p), Math.sin(t) * Math.sin(p), Math.cos(t)];
+    let m = -Infinity;
+    for (const c of caps) m = Math.max(m, c[1] - dot(d, c[0]));
+    return m;
+  };
+  for (let it = 0; it < 5; it++)
+    for (let ip = 0; ip < 8; ip++) {
+      let t = (it + 0.5) * Math.PI / 5, p = ip * Math.PI / 4, step = 0.1, v = 0;
+      for (let iter = 0; iter < 100; iter++) {
+        v = worst(t, p);
+        if (v < -1e-9) break;
+        let bv = v, bt = t, bp = p;
+        for (const [dt, dp] of [[step, 0], [-step, 0], [0, step], [0, -step]]) {
+          const nt = Math.max(0.01, Math.min(Math.PI - 0.01, t + dt)), np = p + dp, nv = worst(nt, np);
+          if (nv < bv) { bv = nv; bt = nt; bp = np; }
+        }
+        if (Math.abs(bv - v) < 1e-12) step *= 0.5;
+        if (step < 1e-10) break;
+        t = bt; p = bp;
+      }
+      if (worst(t, p) < -1e-9) return true;
+    }
+  return false;
+}
+const PHYS = new Map();
+/**
+ * 表的第 r 行在真实光路里怎么走 (表的面号): 签名与合成镜都对的序列里, 在当前反射规则下有光线方向能走通的 (C# 可达判据,
+ * 不允许部分反射时加全反射约束 — 否则很多光路默认设置下一个点也画不出), 取最短的那个长度上的全部 (最多比代数最短长 2).
+ * partial = 允许部分反射 (界面的「蓝边」).
+ */
+function physPaths(r, partial) {
+  const ck = r.i + (partial ? 'p' : 't');
+  if (PHYS.has(ck)) return PHYS.get(ck);
+  const pre = ARC_PHYS[r.i];                                              // 预先生成的 (arcphys.js), 长光路现算要好几秒
+  if (pre) { const out = pre[partial ? 1 : 0].map(s => s.split('-').map(Number)); PHYS.set(ck, out); return out; }
+  return livePhysPaths(r, partial);
+}
+/** 现算 (arcphys.js 的生成器也用它): 见 physPaths */
+export function livePhysPaths(r, partial) {
+  if (typeof r === 'number') r = ROWS[r];
+  const ck = r.i + (partial ? 'p' : 't');
+  const sig = signature(r.path), ge = r.g + r.e, target = STATES.idx(r.L);
+  const pairs = SIG_PAIRS.get(sig + '|' + ge) || [[r.ex, r.x]];
+  const minLen = STATES.dist[STATES.idx(I3)][target] + 2;
+  let out = [];
+  for (let len = minLen; len <= minLen + 2 && !out.length; len++) {
+    const nRefl = len - 2, seq = new Array(nRefl);
+    for (const [en, ex] of pairs) {
+      const dfs = (depth, s) => {
+        if (STATES.dist[s][target] > nRefl - depth) return;
+        if (depth === nRefl) {
+          if (s !== target) return;
+          const p = [en, ...seq, ex];
+          if (signature(p) === sig && reachable(p, !partial)) out.push(p);
+          return;
+        }
+        for (let f = 1; f <= 8; f++) { seq[depth] = f; dfs(depth + 1, STATES.next[s][f]); }
+      };
+      dfs(0, STATES.idx(I3));
+    }
+  }
+  PHYS.set(ck, out);
+  return out;
+}
+
 /**
  * 光路 (界面面号) → 名字卡片的数据; 锥面光路或少于两个面返回 null.
  * { names: {column, plate, parry, lowitz}, steps: { e, mids, x, xd, wedge, L, roles: [{o, e, xd, L}] },
- *   same: [{ o, paths: [界面面号光路], conflict: [名字…] }] }
+ *   same: [{ o, paths: [界面面号光路, 真能走通的], needPartial: 只在允许部分反射时有光, conflict: [名字…] }] }
+ * opts.partial: 界面的「蓝边」(允许部分反射) — 决定同一片晕里列哪些光路; opts.orient: 只列这种取向 (0–3) 的, 其余留空.
  */
-export function classifyPath(faces) {
+export function classifyPath(faces, opts = {}) {
   if (!faces || faces.length < 2 || faces.some(f => !(f >= 1 && f <= 8))) return null;
   const k = faces.map(f => WEB2K[f]);
   const L = accumulate(k), gn = gname(L);
@@ -199,7 +316,21 @@ export function classifyPath(faces) {
     const ids = classesOf(o), mine = ids[i];
     const members = ROWS.filter(q => ids[q.i] === mine && q.i !== i);
     const nm = new Set([names[O.key], ...members.map(q => stripM(q.names[O.key]))]);
-    same.push({ o: O.key, paths: members.map(q => q.path.map(toWeb).join('-')), conflict: nm.size > 1 ? [...nm] : null });
+    // 列真光路 (同 C# 窗体的反向生成, 再按当前反射规则筛), 连同自己这一行的其它走法; 不列表里那条只是代数代表的 Raypath.
+    // 全反射下一条都走不通、允许部分反射才有光的晕: 列部分反射下的光路, 标 needPartial
+    const typed = faces.join('-');
+    const collect = part => {
+      const seen = new Set([typed]), out = [];
+      for (const q of [r, ...members])
+        for (const p of physPaths(q, part)) { const s = p.map(toWeb).join('-'); if (!seen.has(s)) { seen.add(s); out.push(s); } }
+      return out;
+    };
+    let paths = [], needPartial = false;
+    if (opts.orient === undefined || opts.orient === o) {             // 只算要显示的那种取向 (长光路的生成不便宜)
+      paths = collect(!!opts.partial);
+      if (!paths.length && !opts.partial) { paths = collect(true); needPartial = paths.length > 0; }
+    }
+    same.push({ o: O.key, paths, needPartial, conflict: nm.size > 1 ? [...nm] : null });
   });
   return {
     row: i + 1, ms: r.ms, names, same,
