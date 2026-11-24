@@ -14,7 +14,7 @@ export const TERM_GROUP = {
   side: 'fence', formal: 'fence', caustic: 'fence', reach: 'fence',
   endpoints: 'ep', ep_end: 'ep', ep_turn: 'ep', ep_cusp: 'ep', ep_focus: 'ep', ep_cross: 'ep', ep_aper: 'ep', ep_tan: 'ep', ep_corner: 'ep', ep_hidden: 'ep',
   arcname: 'basic',
-  partial: 'other', realcrystal: 'other', apex: 'other', chain: 'other', n: 'other',
+  partial: 'other', realcrystal: 'other', sunsize: 'other', apex: 'other', chain: 'other', n: 'other',
 };
 
 export const groupName = g => L().groups[g];

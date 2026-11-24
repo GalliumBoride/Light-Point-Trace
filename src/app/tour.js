@@ -56,7 +56,7 @@ function steps(api) {
     { id: 'camera', tab: 'setup', target: () => $('stepCam') },
     { id: 'glossary', target: () => $('btnGlossary') },
     { id: 'export', target: () => $('btnExport') },
-    { id: 'done', target: () => null, last: true },
+    { id: 'limits', target: () => null, last: true },                  // 最后: 这个工具不做什么 + 源码地址
   ];
 }
 

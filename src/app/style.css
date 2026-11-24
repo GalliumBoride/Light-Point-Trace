@@ -48,6 +48,8 @@
 .tour-card h4 { margin: 0; font-size: 15.5px; line-height: 1.3; text-wrap: balance; }
 .tour-body { font-size: 13px; line-height: 1.6; color: var(--ink-2); }
 .tour-body b { color: var(--ink); }
+.tour-body ul { margin: 6px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.tour-body a { color: var(--accent-text); font-weight: 600; overflow-wrap: anywhere; }
 .tour-body .try { display: block; margin-top: 8px; padding: 7px 10px; border-radius: 8px; background: var(--accent-weak); color: var(--accent-text); }
 .tour-body .try b { color: var(--accent-text); }
 .tour-meta { display: flex; align-items: center; gap: 10px; font: 600 11px var(--mono); color: var(--ink-3); }
@@ -245,6 +247,7 @@ input[type="range"] { flex: 1; min-width: 50px; height: 18px; margin: 0; accent-
 .dgrid input { width: 100%; height: 28px; text-align: right; padding: 0 6px; }
 .dgrid .btn { grid-column: span 2; }
 .opt.off .dgrid { opacity: .5; }
+.opt-btns { display: flex; gap: 6px; flex-wrap: wrap; }
 .real-cry { flex-basis: 100%; display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .real-cry canvas { width: 100%; height: 150px; border-radius: 10px; background: var(--sunk); border: 1px solid var(--line); touch-action: none; cursor: grab; display: block; }
 .real-cry span { font-size: 11px; color: var(--ink-3); }

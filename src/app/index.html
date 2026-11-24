@@ -169,6 +169,16 @@
           </div>
           <p data-i18n="more.nNote">冰约 1.31 (红光 1.306 – 紫光 1.317). 改了以后边界、末端点和 22° 晕的位置都跟着变.</p>
         </div>
+        <div class="opt" id="optSunR">
+          <div class="opt-head"><b data-i18n="more.sunR">太阳大小</b><button class="qmark" data-term="sunsize" data-i18n-aria="more.sunR" aria-label="太阳大小">?</button>
+            <span class="numbox n-box"><input type="number" id="inSunR" min="0" max="2" step="0.01" data-i18n-aria="more.sunRAria" aria-label="太阳视半径 (度)"><i>°</i></span>
+          </div>
+          <div class="opt-btns">
+            <button class="btn small" id="btnSunPoint" data-i18n="more.sunPoint">点太阳 0</button>
+            <button class="btn small" id="btnSunReal" data-i18n="more.sunReal">真实太阳 0.27°</button>
+          </div>
+          <p data-i18n="more.sunNote">视半径. 默认 0 = 点太阳.</p>
+        </div>
         <div class="opt" id="optApex">
           <div class="opt-head"><b data-i18n="more.apex">锥晶顶角</b><button class="qmark" data-term="apex" data-i18n-aria="more.apex" aria-label="锥晶顶角">?</button>
             <select id="selApex" data-i18n-aria="more.apexHow" aria-label="顶角定义方式"><option value="0" data-i18n="more.apexByDeg">按角度</option><option value="1" data-i18n="more.apexByMiller">按 Miller 指数</option></select>

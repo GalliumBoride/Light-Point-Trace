@@ -223,6 +223,7 @@ export class Renderer {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.lineJoin = 'round';
     if (V.view === 0) {
+      if (V.arcs) this.drawBands();
       if (V.lines) this.drawFamilyLines();
       if (V.iso) this.drawIso();
       this.drawSkyDecor();
@@ -325,6 +326,47 @@ export class Renderer {
           for (let i = 0; i < n; i++) { flat[4 * i] = a[3 * i]; flat[4 * i + 1] = a[3 * i + 1]; flat[4 * i + 2] = a[3 * i + 2]; flat[4 * i + 3] = 1; }
           this.drawLineSet([flat], col, true);
         });
+      }
+    });
+  }
+
+  /**
+   * 有限大小的太阳: 每条边界线两侧的半影带 (带外没有光, 带内整个日盘都照得到). 用族的颜色淡淡地填, 两沿细线.
+   * pr.band = [{ name, runs: [{ lo, hi }] }] (xyz 连排, 见 engine/sunsize.js)
+   */
+  drawBands() {
+    const V = this.V, R = this.R, p = this.proj, ctx = this.ctx;
+    if (!R) return;
+    const multi = this.multi;
+    R.paths.forEach((pr, k) => {
+      if (!pr.band) return;
+      for (const B of pr.band) {
+        let fi = pr.ori ? pr.ori.fams.findIndex(f => f.name === B.name) : (pr.sky || []).findIndex(s => s.name === B.name);
+        if (fi < 0) fi = 0;
+        const col = multi ? this.pcol(k) : this.pal(fi);
+        const fill = new Path2D(), edge = new Path2D();
+        for (let mirror = 0; mirror < (V.sym ? 2 : 1); mirror++) {
+          const ys = mirror ? -1 : 1;
+          for (const { lo, hi } of B.runs) {
+            const n = lo.length / 3;
+            let prev = null;
+            for (let i = 0; i < n; i++) {
+              const a = [lo[3 * i], ys * lo[3 * i + 1], lo[3 * i + 2]], b = [hi[3 * i], ys * hi[3 * i + 1], hi[3 * i + 2]];
+              const okA = p.project(a[0], a[1], a[2]), ax = p.x, ay = p.y;
+              const okB = p.project(b[0], b[1], b[2]), bx = p.x, by = p.y;
+              const cur = okA && okB ? { a, b, ax, ay, bx, by } : null;
+              if (cur && prev && p.connect(prev.a[0], prev.a[1], prev.a[2], a[0], a[1], a[2]) && p.connect(prev.b[0], prev.b[1], prev.b[2], b[0], b[1], b[2])
+                  && Math.hypot(ax - prev.ax, ay - prev.ay) < 250 && Math.hypot(bx - prev.bx, by - prev.by) < 250) {
+                fill.moveTo(prev.ax, prev.ay); fill.lineTo(ax, ay); fill.lineTo(bx, by); fill.lineTo(prev.bx, prev.by); fill.closePath();
+                edge.moveTo(prev.ax, prev.ay); edge.lineTo(ax, ay);
+                edge.moveTo(prev.bx, prev.by); edge.lineTo(bx, by);
+              }
+              prev = cur;
+            }
+          }
+        }
+        ctx.fillStyle = css(col, 0.2); ctx.fill(fill, 'nonzero');
+        ctx.strokeStyle = css(col, 0.55); ctx.lineWidth = 1; ctx.lineCap = 'butt'; ctx.stroke(edge);
       }
     });
   }
@@ -767,6 +809,8 @@ export class Renderer {
       if (pr.ori) pr.ori.fams.forEach((fm, fi) => entries.push([V.famTitle(pr, fm), this.pal(fi)]));
       else if (pr.sky) pr.sky.forEach((s, fi) => entries.push([V.skyTitle(pr, s.name), this.pal(fi)]));
     });
+    if (sky && V.arcs && R.paths.some(pr => pr.band && pr.band.length))       // 有限太阳: 半影带 (色块)
+      entries.push([t('legend.band', { r: R.params.sunR }), T.mc, true]);
     if (entries.length === 0) return;
     ctx.save();
     ctx.font = `11.5px ${FONT}`;
@@ -779,7 +823,8 @@ export class Renderer {
     ctx.textBaseline = 'middle';
     entries.forEach((e, i) => {
       const y = by + 13 + i * 17;
-      ctx.strokeStyle = css(e[1]); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(bx + 8, y); ctx.lineTo(bx + 22, y); ctx.stroke();
+      if (e[2]) { ctx.fillStyle = css(e[1], 0.3); ctx.fillRect(bx + 8, y - 4, 14, 8); ctx.strokeStyle = css(e[1], 0.7); ctx.lineWidth = 1; ctx.strokeRect(bx + 8.5, y - 3.5, 13, 7); }
+      else { ctx.strokeStyle = css(e[1]); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(bx + 8, y); ctx.lineTo(bx + 22, y); ctx.stroke(); }
       ctx.fillStyle = T.ink; ctx.fillText(e[0], bx + 27, y);
     });
     ctx.restore();

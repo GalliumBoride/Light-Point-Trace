@@ -14,6 +14,7 @@ import { isCollapsed, isCausticEp } from './engine/collapse.js';
 import { mirrorPath } from './engine/mirror.js';
 import { famSpec, analyzeDof3, packDof3, mcDof3, spaceData, liftData } from './engine/dof3.js';
 import { ruled1, ruledPrepare, ruledFamPieces } from './engine/ruled.js';
+import { bands1, bands2 } from './engine/sunsize.js';
 
 let S = null;   // { pr: { P, faces, name, ori, eps }, om, fx, cfg }
 let S3 = null;  // 三自由度: { P, F, A, cfg }
@@ -62,12 +63,28 @@ function runSky(m, P, om, fx) {
     sky.push({ name, pts: a });
   }
   post({ type: 'sky', job: m.job, idx: m.idx, sky, mc: f32(r.mc), ms: performance.now() - t0 });
+  // 有限大小的太阳: 一自由度的弧 (板晶 / Parry) 加粗成带
+  const sunR = (m.cfg.sunR || 0) * Math.PI / 180;
+  if (sunR > 0 && (m.modeIdx === 1 || m.modeIdx === 2) && sky.length) {
+    const t1 = performance.now();
+    const roll0 = ((m.fixedDeg % 360) * Math.PI) / 180;
+    const pick = m.modeIdx === 1 ? (t => [0, t]) : (t => [t, roll0]), dir = m.modeIdx === 1 ? [0, 1] : [1, 0];
+    const runs = bands1(P, om, fx, pick, dir, (u, v) => validAt(P, om, fx, u, v, 0), sunR);
+    post({ type: 'band', job: m.job, idx: m.idx, band: [{ name: sky[0].name, runs }], ms: performance.now() - t1 });
+  }
 }
 
 function runOri(m, P, om, fx) {
   const { job, idx } = m;
   S = { pr: null, om, fx, cfg: m.cfg, mirror: null };
   S.pr = oriStages(P, om, fx, (type, data, ms) => post({ type, job, idx, ms, ...data }));
+  // 有限大小的太阳: 每条边界线的半影带 (连线算完以后再算, 不耽误先出图)
+  const sunR = (m.cfg.sunR || 0) * Math.PI / 180;
+  if (sunR > 0 && S.pr.lines) {
+    const t = performance.now();
+    const band = bands2(P, om, fx, S.pr.ori.fams, S.pr.lines, sunR);
+    post({ type: 'band', job, idx, band, ms: performance.now() - t });
+  }
 }
 
 /** 取向平面整套: 网格 → 末端点 → 连线, 每完成一段 emit(类型, 数据, 毫秒) 一次. 返回该光路的状态. */

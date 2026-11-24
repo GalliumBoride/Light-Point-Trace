@@ -38,6 +38,7 @@ const DEFAULTS = {
   lineW: 2, mcSize: 1, checked: [], introDone: false, tab: 'setup', moreOpen: false,
   kz: 1.6, liftRef: 'auto', drops: true, lang: '', langPicked: false, tourSeen: false, zenHalf: false, hlFull: true, liftBase: 'flat', nIce: 1.31, cryPyr: false,
   iso: false, isoW: 'fresnel', isoLv: '', oriTorus: false,
+  sunR: 0,                                        // 太阳视半径° (0 = 点太阳; > 0 时边界画成半影带, 见 engine/sunsize.js)
   range: false, fixed2: 75,                       // 三自由度: 第三个角放开到 [fixed, fixed2] (板晶: 摆幅 0–fixed2)
   ruled: false, ruledSel: [],                     // 天球视图的直纹曲面; 2DOF 时画哪些边界 (族键)
   ruledA: [0.55, 0.35], ruledShow: [true, true], // 可达 / 不可达两部分的不透明度与显示 (默认同窗体)
@@ -255,6 +256,7 @@ function syncMore(paths) {
   if (Math.abs(S.nIce - 1.31) > 1e-9) tags.append(el('span', '', tr('tag.n', { n: S.nIce })));
   if (pyr) tags.append(el('span', '', tr('tag.apex', { deg: S.apexUpEff.toFixed(1) })));
   if (S.real) tags.append(el('span', '', tr('tag.real')));
+  if (S.sunR > 0) tags.append(el('span', '', tr('tag.sunR', { r: S.sunR })));
   if (S.real && paths && paths.length && !paths.some(p => apSupports(p, !!S.cryPyr)))
     tags.append(el('span', '', tr('tag.realNoEffect')));
   if (pyr) S.cryPyr = true;                      // 光路用了锥面: 晶体图自动换成锥晶, 才点得到那些面
@@ -279,15 +281,17 @@ function compute() {
   const sun = parseFloat($('inSun').value);
   const sunOk = Number.isFinite(sun) && sun >= -90 && sun <= 90;
   const nIce = parseFloat($('inN').value), nOk = Number.isFinite(nIce) && nIce > 1 && nIce <= 3;
+  const sunR = $('inSunR').value.trim() === '' ? 0 : parseFloat($('inSunR').value), sunROk = Number.isFinite(sunR) && sunR >= 0 && sunR <= 2;
   $('inPath').classList.toggle('invalid', !paths && $('inPath').value.trim() !== '');
   $('inSun').closest('.numbox').classList.toggle('invalid', !sunOk);
   $('inN').closest('.numbox').classList.toggle('invalid', !nOk);
-  if (!paths || !sunOk || !nOk) {
-    setStatus('err', !paths ? 'status.badPath' : !sunOk ? 'status.badSun' : 'status.badN');
+  $('inSunR').closest('.numbox').classList.toggle('invalid', !sunROk);
+  if (!paths || !sunOk || !nOk || !sunROk) {
+    setStatus('err', !paths ? 'status.badPath' : !sunOk ? 'status.badSun' : !nOk ? 'status.badN' : 'status.badSunR');
     if (!sunOk) $('pathMsg').textContent = $('pathMsg').textContent || tr('path.errSun');
     return;
   }
-  S.path = $('inPath').value.trim(); S.sun = sun; S.nIce = nIce;
+  S.path = $('inPath').value.trim(); S.sun = sun; S.nIce = nIce; S.sunR = sunR;
   setIndex(nIce);
   readApex();
   const { d, h, hU, hL } = readReal();
@@ -296,7 +300,7 @@ function compute() {
   setSun(sun);
   const zenHalf = S.mode === 3 && S.zenHalf;
   LP.zenHalf = zenHalf;                          // 主线程里也要知道取向平面的 ζ 范围 (画轴、回到全图)
-  const cfg = { sun, n: nIce, partial: S.partial, apexUp: S.apexUpEff, apexLo: S.apexLoEff, aperture: { on: S.real, dist: d, h, pyr: !!S.cryPyr, hU, hL }, zenHalf };
+  const cfg = { sun, n: nIce, partial: S.partial, apexUp: S.apexUpEff, apexLo: S.apexLoEff, aperture: { on: S.real, dist: d, h, pyr: !!S.cryPyr, hU, hL }, zenHalf, sunR };
   if (om + '|' + zenHalf !== lastAxes) { lastAxes = om + '|' + zenHalf; resetOriView(); }
   const dof3 = rangeSpec();
   const twoDof = !dof3 && (S.mode === 0 || S.mode === 3);
@@ -312,7 +316,7 @@ function compute() {
   const job = pool.compute(tasks);
   Rnext = {
     job, t0: performance.now(),
-    params: { sun, n: nIce, partial: S.partial, mode: S.mode, fixed: S.fixed, om, fx, twoDof, real: S.real, h, realTag: realTag(S.real, d, h, S.cryPyr ? [hU, hL] : null), zenHalf,
+    params: { sun, n: nIce, partial: S.partial, mode: S.mode, fixed: S.fixed, om, fx, twoDof, real: S.real, h, realTag: realTag(S.real, d, h, S.cryPyr ? [hU, hL] : null), zenHalf, sunR,
               dof3: dof3 ? { ...dof3, zenHalf } : null },
     paths: prs, oriLocal: null, clouds: new Map(), requestCloud,
   };
@@ -354,6 +358,7 @@ pool.onMessage = m => {
     case 'ori': Object.assign(pr, { ori: m.ori, oriMs: m.ms }); break;
     case 'eps': pr.eps = m.eps; pr.epsMs = m.ms; break;
     case 'lines': pr.lines = new Map(m.lines.map(l => [l.name, l])); pr.linesMs = m.ms; break;
+    case 'band': pr.band = m.band; pr.bandMs = m.ms; break;            // 有限太阳的半影带 (连线之后才到)
     case 'slice': {                                // 三自由度: 区间一端的 2DOF 取向平面 (取向空间的顶/底面)
       pr.slices = pr.slices || [];
       const sl = pr.slices[m.si] || (pr.slices[m.si] = { z: m.z, face: m.face });
@@ -435,7 +440,7 @@ function viewState(chrome) {
     const lens = S.view === 0 ? ` · ${lensTag(S.lens)} ${S.lens === 5 ? '360×180' : Math.round(S.fov) + '°'}` : tr('export.ori');
     title = tr('export.title', { paths: R.paths.map(p => p.name).join(' + '),
       mode: modeInfo(P.mode).name + (P.mode === 1 ? '' : ' ' + fmt(P.fixed) + '°'), sun: fmt(P.sun),
-      refl: tr(P.partial ? 'export.partial' : 'export.pure'), real: P.realTag, view: lens });
+      refl: tr(P.partial ? 'export.partial' : 'export.pure'), real: P.realTag + (P.sunR > 0 ? tr('export.sunR', { r: P.sunR }) : ''), view: lens });
   }
   return {
     W: plot.clientWidth, H: plot.clientHeight, dpr: Math.min(window.devicePixelRatio || 1, 3), theme: theme(),
@@ -1009,6 +1014,7 @@ function renderStats() {
       add(tr('stats.eps'), ms(pr.epsMs));
       add(tr('stats.lines'), ms(pr.linesMs));
     }
+    if (pr.bandMs !== undefined) add(tr('stats.band'), ms(pr.bandMs));
     add(tr('stats.total'), ms(pr.totalMs));
     if (pr.error) g.append(el('span', 'err', pr.error.split('\n')[0]));
     maxMs = Math.max(maxMs, pr.totalMs || 0);
@@ -1342,6 +1348,7 @@ function tourDemo(p) {
   closePops();
   S.partial = false; $('ckPartial').checked = false;
   S.real = false; $('ckReal').checked = false;
+  S.sunR = 0; $('inSunR').value = 0;
   S.mode = p.mode; S.fixed = p.fixed; S.sun = p.sun; S.sym = true; S.zenHalf = false; S.range = false;
   $('inSun').value = p.sun; $('slSun').value = p.sun; $('ckSym').checked = true;   // 镜像那一半也画上: 幻日要成对
   for (const k of ['lens', 'az', 'el', 'fov', 'xw', 'yw', 'xc', 'yc']) S[k] = DEFAULTS[k];     // 相机回到默认, 免得重看教程时还是放大的
@@ -1553,6 +1560,10 @@ function initControls() {
   $('inN').value = S.nIce;
   bindNum('inN', () => compute());
   $('btnNReset').addEventListener('click', () => { $('inN').value = 1.31; compute(); });
+  $('inSunR').value = S.sunR;
+  bindNum('inSunR', () => compute());
+  $('btnSunPoint').addEventListener('click', () => { $('inSunR').value = 0; compute(); });
+  $('btnSunReal').addEventListener('click', () => { $('inSunR').value = 0.27; compute(); });
   document.querySelectorAll('#crySeg button').forEach(b => b.addEventListener('click', () => {
     S.cryPyr = b.dataset.cry === '1'; syncCrystal();
     if (S.real) compute(); else save();          // 真实晶体: 棱柱 / 锥晶是两块不同的晶体, 要重算

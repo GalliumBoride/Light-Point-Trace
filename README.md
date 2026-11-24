@@ -32,11 +32,12 @@ You can choose:
 - **Sun elevation**: −90° to 90°.
 - **Blue edge** (allow partial reflection).
 - **Refractive index** (default 1.31).
+- **Sun size** (angular radius, default 0 = a point Sun). Above 0, every boundary in the Sky view becomes a penumbra band: no light outside it, the whole solar disk inside it. The half-width is r·|g|, where g is how fast the boundary moves sideways when the Sun moves (on caustics this is the envelope theorem; the azimuthal part is exact because the halo turns rigidly about the zenith). Each band edge is then refined exactly by searching the rim of the solar disk for the Sun position that pushes the boundary furthest, solving only near that point. Checked against re-running the whole engine at 36 points around the rim. Sundogs come out exactly one Sun diameter tall; the circumzenithal arc is sharper than the Sun (|g| ≈ 0.86 at 20°) until it smears out near 32°.
 - **Pyramid faces**: by apex angle or Miller index. The crystal picker can show a pyramidal crystal, so faces 13–18 / 23–28 can be clicked into the path.
 - **Real crystal size**: finite prism, aperture boundaries. With the pyramid crystal picked, truncated pyramids of adjustable height (h↑ / h↓) are added above and below the prism, and every face sequence (entry or exit through pyramid or basal faces too) is clipped by an exact linear program on the entry face.
 - **Sky camera**: six projections; view direction and field of view can be typed in the left panel.
 
-A built-in glossary explains every term in plain language first, symbols last. The interface is available in Chinese and English.
+A built-in glossary explains every term in plain language first, symbols last. A step-by-step tutorial opens on the first visit (Tutorial in the top bar replays it). The interface is available in English (default) and Chinese.
 
 ## How it works
 
